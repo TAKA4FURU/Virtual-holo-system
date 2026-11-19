@@ -118,13 +118,13 @@
     baseBK: { file: '06_baseBK', name: '06 baseBK', kind: 'base', dist: 0.02,
               visible: true, gray: 0, opacity: 100 },
     red:    { file: '05_red',    name: '05 red',    kind: 'holo', dist: 0, pats: ['v', 'h'],
-              visible: true, axis: 'x',  pattern: 'v', offset: 270, size: 1, opacity: 100 },
+              visible: true, axis: 'x',  pattern: 'v', offset: 270, size: 5, opacity: 100 },
     cyan:   { file: '04_cyan',   name: '04 cyan',   kind: 'holo', dist: 0, pats: ['v', 'h'],
-              visible: true, axis: 'y',  pattern: 'h', offset: 180, size: 1, opacity: 100 },
+              visible: true, axis: 'y',  pattern: 'h', offset: 180, size: 5, opacity: 100 },
     green:  { file: '03_green',  name: '03 green',  kind: 'holo', dist: 0, pats: ['v', 'h'],
-              visible: true, axis: 'x',  pattern: 'v', offset: 90,  size: 1, opacity: 100 },
+              visible: true, axis: 'x',  pattern: 'v', offset: 90,  size: 5, opacity: 100 },
     blue:   { file: '02_blue',   name: '02 blue',   kind: 'holo', dist: 0, pats: ['v', 'h'],
-              visible: true, axis: 'y',  pattern: 'h', offset: 0,   size: 1, opacity: 100 },
+              visible: true, axis: 'y',  pattern: 'h', offset: 0,   size: 5, opacity: 100 },
     line:   { file: '01_line',   name: '01 line（HDR）', kind: 'line', dist: 0,
               visible: true, axis: 'xy', offset: 0, glint: true },
   };
@@ -209,10 +209,15 @@
   }
   function paintFill(f) {
     const cfg = f.cfg, cv = f.c, S = box.s;
+    // サイズ1のラジアルは、開始位置を「円盤の回転」で表すので描き直さない
+    f.rotOffset = cfg.pattern === 'radial' && cfg.size === 1;
+    const key = [cfg.pattern, cfg.size, f.rotOffset ? 0 : cfg.offset, S, portraitH()].join('|');
+    if (key === f.painted) return;
+    f.painted = key;
     if (cfg.pattern === 'radial') {
       f.mode = 'spin';
       const R = S * .75;
-      paintDisc(cv, R * 2, cfg.size, cfg.offset);
+      paintDisc(cv, R * 2, cfg.size, f.rotOffset ? 0 : cfg.offset);
       Object.assign(cv.style, { left: (S / 2 - R) + 'px', top: (S / 2 - R) + 'px', transformOrigin: '50% 50%' });
     } else {
       f.mode = 'stripe';
@@ -225,7 +230,7 @@
   function moveFill(f, x, y) {
     const v = axisValue(f.cfg.axis, x, y);
     f.c.style.transform = f.mode === 'spin'
-      ? `rotate(${(v * SPIN_DEG).toFixed(2)}deg)`
+      ? `rotate(${(v * SPIN_DEG - (f.rotOffset ? f.cfg.offset : 0)).toFixed(2)}deg)`
       : `rotate(${f.theta}deg) translate3d(${(v * portraitH()).toFixed(1)}px,0,0)`;
   }
 
