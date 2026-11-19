@@ -27,7 +27,7 @@
   .glint img { position: absolute; opacity: 0; will-change: opacity; dynamic-range-limit: no-limit; }
 
   /* UI */
-  #ui { position: fixed; left: 0; right: 0; bottom: calc(0px - var(--gap, 0px)); padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  #ui { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     display: flex; gap: 8px 10px; align-items: center; justify-content: center; flex-wrap: wrap;
     background: linear-gradient(transparent, rgba(0,0,0,.7)); font-size: 13px; z-index: 5; }
   #ui button { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.25);
@@ -40,7 +40,7 @@
   #status { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 0; right: 0; text-align: center;
     font-size: 12px; opacity: .55; z-index: 5; }
 
-  #panel { position: fixed; left: 10px; right: 10px; bottom: calc(110px + env(safe-area-inset-bottom) - var(--gap, 0px)); z-index: 6;
+  #panel { position: fixed; left: 10px; right: 10px; bottom: calc(110px + env(safe-area-inset-bottom)); z-index: 6;
     display: none; max-height: 58vh; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
     background: rgba(10,10,16,.92); border: 1px solid rgba(255,255,255,.15); border-radius: 14px; padding: 6px 12px; font-size: 12px; }
   #panel .row { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
@@ -54,7 +54,7 @@
   #panel .num { width: 4.2em; background: #2a2a33; color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 6px;
     padding: 3px 4px; font-size: 16px; text-align: right; -moz-appearance: textfield; }  /* 16px：iPhoneで入力時に画面が拡大されないように */
   #panel .num::-webkit-inner-spin-button { -webkit-appearance: none; }
-  #toast { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom) - var(--gap, 0px)); transform: translateX(-50%); z-index: 7;
+  #toast { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 7;
     background: rgba(0,0,0,.75); color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; pointer-events: none;
     opacity: 0; transition: opacity .4s; white-space: nowrap; }
   body.noui #ui, body.noui #status, body.noui #panel, body.noui #hdrTest { display: none !important; }
