@@ -232,7 +232,8 @@
     }
   }
   function moveFill(f, x, y) {
-    const v = axisValue(f.cfg.axis, x, y);
+    // 縦横両方だと値が大きくなるので上限を付ける（用意した模様の長さを超えて端が見えないように）
+    const v = clamp(axisValue(f.cfg.axis, x, y), -1.55, 1.55);
     f.c.style.transform = f.mode === 'spin'
       ? `rotate(${(v * SPIN_DEG - (f.rotOffset ? f.cfg.offset : 0)).toFixed(2)}deg)`
       : `rotate(${f.theta}deg) translate3d(${(v * portraitH()).toFixed(1)}px,0,0)`;
