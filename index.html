@@ -41,9 +41,15 @@
   #panel .head b { flex: 1; font-weight: 600; }
   #panel .head input { width: 18px; height: 18px; }
   #panel select { background: #2a2a33; color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 4px 6px; font-size: 12px; }
-  #panel .sl { display: grid; grid-template-columns: 7.5em 1fr 3em; align-items: center; gap: 8px; padding: 2px 0 2px 24px; }
-  #panel .sl span:last-child { text-align: right; opacity: .8; }
-  #panel .group { margin: 10px 0 2px; font-size: 11px; opacity: .55; }
+  #panel .sl { display: grid; grid-template-columns: 7.5em 1fr 5em; align-items: center; gap: 8px; padding: 2px 0 2px 24px; }
+  #panel .nw { display: flex; align-items: center; gap: 2px; justify-content: flex-end; }
+  #panel .num { width: 4.2em; background: #2a2a33; color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 6px;
+    padding: 3px 4px; font-size: 16px; text-align: right; -moz-appearance: textfield; }  /* 16px：iPhoneで入力時に画面が拡大されないように */
+  #panel .num::-webkit-inner-spin-button { -webkit-appearance: none; }
+  #toast { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 7;
+    background: rgba(0,0,0,.75); color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; pointer-events: none;
+    opacity: 0; transition: opacity .4s; white-space: nowrap; }
+  body.noui #ui, body.noui #status, body.noui #panel, body.noui #hdrTest { display: none !important; }
 
   #hdrTest { position: fixed; top: calc(34px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 6;
     display: none; gap: 10px; align-items: center; background: rgba(0,0,0,.85); padding: 10px 14px; border-radius: 12px; font-size: 12px; }
@@ -70,7 +76,9 @@
   <button id="recenter">水平リセット</button>
   <button id="hdrBtn">HDR確認</button>
   <button id="panelBtn">ホロ設定</button>
+  <button id="hideBtn">表示を消す</button>
 </div>
+<div id="toast"></div>
 
 <div id="start">
   <div>
@@ -99,39 +107,35 @@
   // axis: 反応する傾き 'y'=縦 / 'x'=横 / 'xy'=両方
   // pattern: 'v'=縦 / 'h'=横 / 'radial'=ラジアル
   // offset: 色の開始位置(0〜360)  size: 1〜100（1＝縦画面の高さで虹1周）
-  // gap: 1つ手前のレイヤーからの距離（奥行き）
+  // dist: カメラからの距離 0（近い）〜100（遠い）。近いものほど手前に重なる
   const L = {
-    dust:   { file: '09_dust',   name: '09 dust',   kind: 'holo', far: true, gap: 10, pats: ['v', 'h', 'radial'],
-              visible: true, axis: 'x',  pattern: 'h',      offset: 0,   size: 1, opacity: 80,  blur: 15 },
-    flash:  { file: '08_flash',  name: '08 flash',  kind: 'holo', far: true, gap: 10, pats: ['v', 'h', 'radial'],
-              visible: true, axis: 'y',  pattern: 'radial', offset: 120, size: 1, opacity: 60,  blur: 8 },
-    star:   { file: '07_star',   name: '07 star',   kind: 'holo', far: true, gap: 10, pats: ['v', 'h', 'radial'],
-              visible: true, axis: 'x',  pattern: 'radial', offset: 240, size: 1, opacity: 100, blur: 0 },
-    baseBK: { file: '06_baseBK', name: '06 baseBK', kind: 'base', z: 0.02,
+    dust:   { file: '09_dust',   name: '09 dust',   kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
+              visible: true, axis: 'x',  pattern: 'h',      offset: 0,   size: 1, opacity: 80,  blur: 15, dist: 30 },
+    flash:  { file: '08_flash',  name: '08 flash',  kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
+              visible: true, axis: 'y',  pattern: 'radial', offset: 120, size: 1, opacity: 60,  blur: 8, dist: 20 },
+    star:   { file: '07_star',   name: '07 star',   kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
+              visible: true, axis: 'x',  pattern: 'radial', offset: 240, size: 1, opacity: 100, blur: 0, dist: 10 },
+    baseBK: { file: '06_baseBK', name: '06 baseBK', kind: 'base', dist: 0.02,
               visible: true, gray: 0, opacity: 100 },
-    red:    { file: '05_red',    name: '05 red',    kind: 'holo', main: true, pats: ['v', 'h'],
+    red:    { file: '05_red',    name: '05 red',    kind: 'holo', dist: 0, pats: ['v', 'h'],
               visible: true, axis: 'x',  pattern: 'v', offset: 270, size: 1, opacity: 100 },
-    cyan:   { file: '04_cyan',   name: '04 cyan',   kind: 'holo', main: true, pats: ['v', 'h'],
+    cyan:   { file: '04_cyan',   name: '04 cyan',   kind: 'holo', dist: 0, pats: ['v', 'h'],
               visible: true, axis: 'y',  pattern: 'h', offset: 180, size: 1, opacity: 100 },
-    green:  { file: '03_green',  name: '03 green',  kind: 'holo', main: true, pats: ['v', 'h'],
+    green:  { file: '03_green',  name: '03 green',  kind: 'holo', dist: 0, pats: ['v', 'h'],
               visible: true, axis: 'x',  pattern: 'v', offset: 90,  size: 1, opacity: 100 },
-    blue:   { file: '02_blue',   name: '02 blue',   kind: 'holo', main: true, pats: ['v', 'h'],
+    blue:   { file: '02_blue',   name: '02 blue',   kind: 'holo', dist: 0, pats: ['v', 'h'],
               visible: true, axis: 'y',  pattern: 'h', offset: 0,   size: 1, opacity: 100 },
-    line:   { file: '01_line',   name: '01 line（HDR）', kind: 'line', main: true,
+    line:   { file: '01_line',   name: '01 line（HDR）', kind: 'line', dist: 0,
               visible: true, axis: 'xy', offset: 0, glint: true },
   };
   const ORDER = ['dust', 'flash', 'star', 'baseBK', 'red', 'cyan', 'green', 'blue', 'line'];
   const PATTERN_NAMES = { v: '縦', h: '横', radial: 'ラジアル' };
 
-  // 奥行き：メインキャラ=0、baseBK=z、star=baseBK+gap、flash=star+gap、dust=flash+gap
-  function zOf(k) {
-    const c = L[k];
-    if (c.main) return 0;
-    if (k === 'baseBK') return c.z;
-    if (k === 'star') return L.baseBK.z + c.gap;
-    if (k === 'flash') return zOf('star') + c.gap;
-    if (k === 'dust') return zOf('flash') + c.gap;
-    return 0;
+  const zOf = k => L[k].dist;
+  // 重なり順：カメラに近いものほど上。同じ距離ならファイル番号の小さいものが上
+  function applyOrder() {
+    const sorted = [...ORDER].sort((a, b) => (L[b].dist - L[a].dist) || (ORDER.indexOf(a) - ORDER.indexOf(b)));
+    sorted.forEach((k, i) => { L[k].el.style.zIndex = i + 1; });
   }
 
   const card = $('card'), status = $('status'), powerEl = $('power');
@@ -166,32 +170,42 @@
   // ===== ホロの塗り =====
   const axisValue = (axis, x, y) => axis === 'x' ? x : axis === 'y' ? y : x * .82 + y * .57;
   const portraitH = () => Math.max(innerWidth, innerHeight);
-  const hsl = h => `hsl(${((h % 360) + 360) % 360},100%,62%)`;
 
-  // ラジアル：描画エリアの中心を軸に回る虹の円盤。size>1 は虹の一部を往復させて継ぎ目を出さない
+  // 色相→RGB（彩度100%・明度62%）
+  function hueRGB(h) {
+    h = ((h % 360) + 360) % 360 / 60;
+    const l = .62, c = (1 - Math.abs(2 * l - 1)), x = c * (1 - Math.abs(h % 2 - 1)), m = l - c / 2;
+    const [r, g, b] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
+    return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+  }
+  // ラジアル：描画エリアの中心を軸に回る虹の円盤。1画素ずつ色を決めるので継ぎ目が出ない
+  // size>1 は虹の一部だけを使い、左右対称に行って戻る並びにする
   function paintDisc(cv, D, size, offset) {
-    const res = .4, n = Math.ceil(D * res);
+    const n = Math.ceil(D * .4);
     cv.width = cv.height = n; cv.style.width = cv.style.height = D + 'px';
-    const g = cv.getContext('2d'), r = n / 2;
-    for (let a = 0; a < 360; a++) {
+    const g = cv.getContext('2d'), img = g.createImageData(n, n), d = img.data, r = n / 2;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      let a = Math.atan2(y + .5 - r, x + .5 - r) * 180 / Math.PI; if (a < 0) a += 360;
       const fold = a <= 180 ? a : 360 - a;
-      g.fillStyle = hsl(size === 1 ? a + offset : offset + fold * 2 / size);
-      g.beginPath(); g.moveTo(r, r);
-      g.arc(r, r, r * 1.5, (a - 0.6) * Math.PI / 180, (a + 1.6) * Math.PI / 180); g.closePath(); g.fill();
+      const [R, G, B] = hueRGB(size === 1 ? a + offset : offset + fold * 2 / size);
+      const i = (y * n + x) * 4; d[i] = R; d[i + 1] = G; d[i + 2] = B; d[i + 3] = 255;
     }
+    g.putImageData(img, 0, 0);
   }
   // 縦・横：模様は長さ方向にしか変化しないので高さ1pxで描いて引き伸ばす（軽い）
+  // 1画素ずつ色を決めるので、虹1周の継ぎ目に隙間（黒い線）ができない
   function paintStripes(cv, Lc, S, P, offset) {
-    const res = clamp(16 / P, .12, .35);
-    cv.width = Math.ceil(Lc * res); cv.height = 1;
+    const res = clamp(24 / P, .25, 1), n = Math.ceil(Lc * res);
+    cv.width = n; cv.height = 1;
     cv.style.width = Lc + 'px'; cv.style.height = S + 'px';
-    const g = cv.getContext('2d'); g.setTransform(res, 0, 0, 1, 0, 0); g.clearRect(0, 0, Lc, 1);
+    const g = cv.getContext('2d'), img = g.createImageData(n, 1), d = img.data;
     const phase = (offset / 360) * P;
-    for (let x0 = -((phase % P) + P) % P - P; x0 < Lc; x0 += P) {
-      const gr = g.createLinearGradient(x0, 0, x0 + P, 0);
-      for (let h = 0; h <= 360; h += 30) gr.addColorStop(h / 360, hsl(h));
-      g.fillStyle = gr; g.fillRect(x0, 0, P + 1, 1);
+    for (let i = 0; i < n; i++) {
+      const u = ((i + .5) / res + phase) / P;
+      const [R, G, B] = hueRGB((u - Math.floor(u)) * 360);
+      d[i * 4] = R; d[i * 4 + 1] = G; d[i * 4 + 2] = B; d[i * 4 + 3] = 255;
     }
+    g.putImageData(img, 0, 0);
   }
   function paintFill(f) {
     const cfg = f.cfg, cv = f.c, S = box.s;
@@ -251,7 +265,7 @@
         left: g.b.x * box.k + 'px', top: g.b.y * box.k + 'px', width: g.b.w * box.k + 'px', height: g.b.h * box.k + 'px' });
       if (c.far) applyBlur(k);
     }
-    applyLooks();
+    applyLooks(); applyOrder();
   }
   // 見た目の設定（表示・不透明度・色）を反映
   function applyLooks() {
@@ -344,28 +358,29 @@
   }
 
   // ===== 設定パネル =====
-  function slider(k, f, label, min, max, step, unit = '') {
-    return `<label class="sl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${L[k][f]}" data-k="${k}" data-f="${f}"><span>${L[k][f]}${unit}</span></label>`;
+  // スライダーの右に数値入力欄。どちらを変えても同じ値になる
+  const LIMITS = { offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 100, .01] };
+  function slider(k, f, label, unit = '') {
+    const [min, max, step] = LIMITS[f];
+    return `<label class="sl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${L[k][f]}" data-k="${k}" data-f="${f}">` +
+      `<span class="nw"><input type="number" class="num" min="${min}" max="${max}" step="any" value="${L[k][f]}" data-k="${k}" data-f="${f}">${unit}</span></label>`;
   }
   function buildPanel() {
     const rows = [];
-    const groups = { line: 'メインキャラ（最も手前）', baseBK: 'メインキャラのすぐ奥', star: '背景（奥）' };
     for (const k of [...ORDER].reverse()) {
       const c = L[k];
-      if (groups[k]) rows.push(`<div class="group">${groups[k]}</div>`);
       let h = `<div class="row"><div class="head"><input type="checkbox" data-k="${k}" data-f="visible"${c.visible ? ' checked' : ''}><b>${c.name}</b>`;
       if (c.axis) h += `<select data-k="${k}" data-f="axis">${[['y', '縦の傾き'], ['x', '横の傾き'], ['xy', '縦横両方']].map(([v, n]) =>
         `<option value="${v}"${c.axis === v ? ' selected' : ''}>${n}</option>`).join('')}</select>`;
       if (c.pats) h += `<select data-k="${k}" data-f="pattern">${c.pats.map(v =>
         `<option value="${v}"${c.pattern === v ? ' selected' : ''}>${PATTERN_NAMES[v]}</option>`).join('')}</select>`;
       h += `</div>`;
-      if (c.kind === 'line') h += slider(k, 'offset', '光の開始位置', 0, 360, 5);
-      if (c.kind === 'holo') { h += slider(k, 'offset', '開始位置', 0, 360, 5); h += slider(k, 'size', 'サイズ', 1, 100, 1); }
-      if (c.kind === 'base') h += slider(k, 'gray', '色（黒〜50%灰）', 0, 50, 1, '%');
-      if (c.opacity != null) h += slider(k, 'opacity', '不透明度', 0, 100, 1, '%');
-      if (c.far) h += slider(k, 'blur', 'ぼかし', 0, 100, 1, '%');
-      if (k === 'baseBK') h += slider(k, 'z', '奥行き', 0, 1, .01);
-      if (c.far) h += slider(k, 'gap', '手前の層からの距離', 0, 30, .5);
+      if (c.kind === 'line') h += slider(k, 'offset', '光の開始位置');
+      if (c.kind === 'holo') { h += slider(k, 'offset', '開始位置'); h += slider(k, 'size', 'サイズ'); }
+      if (c.kind === 'base') h += slider(k, 'gray', '色（黒〜50%灰）', '%');
+      if (c.opacity != null) h += slider(k, 'opacity', '不透明度', '%');
+      if (c.far) h += slider(k, 'blur', 'ぼかし', '%');
+      h += slider(k, 'dist', 'カメラからの距離');
       rows.push(h + '</div>');
     }
     const p = $('panel'); p.innerHTML = rows.join('');
@@ -376,21 +391,44 @@
       L[el.dataset.k].visible = el.checked; applyLooks();
     }));
     let repaint = null;
-    p.querySelectorAll('input[type=range]').forEach(el => el.addEventListener('input', () => {
-      const k = el.dataset.k, f = el.dataset.f, c = L[k];
-      c[f] = +el.value;
-      const unit = (f === 'opacity' || f === 'blur' || f === 'gray') ? '%' : '';
-      el.nextElementSibling.textContent = el.value + unit;
+    const setValue = (k, f, v, from) => {
+      const [min, max] = LIMITS[f], c = L[k];
+      v = clamp(isNaN(v) ? c[f] : v, min, max);
+      c[f] = v;
+      p.querySelectorAll(`input[data-k="${k}"][data-f="${f}"]`).forEach(el => { if (el !== from) el.value = v; });
       if ((f === 'offset' || f === 'size') && c.fill) {          // 次のコマでまとめて描き直す
         if (!repaint) requestAnimationFrame(() => { paintFill(repaint); repaint = null; });
         repaint = c.fill;
       }
       if (f === 'blur') applyBlur(k);
       if (f === 'opacity' || f === 'gray') applyLooks();
-      if (f === 'z' || f === 'gap') c.el.style.transform = '';
-    }));
+      if (f === 'dist') { applyOrder(); if (!v) c.el.style.transform = ''; }
+    };
+    p.querySelectorAll('input[type=range]').forEach(el => el.addEventListener('input', () => setValue(el.dataset.k, el.dataset.f, +el.value, el)));
+    p.querySelectorAll('input.num').forEach(el => {
+      el.addEventListener('change', () => { setValue(el.dataset.k, el.dataset.f, parseFloat(el.value)); el.value = L[el.dataset.k][el.dataset.f]; });
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
+    });
   }
   $('panelBtn').addEventListener('click', () => { const p = $('panel'); p.style.display = p.style.display === 'block' ? 'none' : 'block'; });
+  // 設定ウインドウの外をタップ／クリックしたら閉じる
+  document.addEventListener('pointerdown', e => {
+    const p = $('panel');
+    if (p.style.display === 'block' && !e.target.closest('#panel, #panelBtn')) p.style.display = 'none';
+  }, true);
+
+  // 表示を消す：画像以外を全部消す。ダブルタップ（PCはダブルクリック）で元に戻す
+  let toastTimer;
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.opacity = 1; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, 2200); }
+  $('hideBtn').addEventListener('click', () => { document.body.classList.add('noui'); toast('ダブルタップで表示が戻ります'); });
+  function showUI() { if (document.body.classList.contains('noui')) { document.body.classList.remove('noui'); $('toast').style.opacity = 0; } }
+  let lastTap = { t: 0, x: 0, y: 0 };
+  document.addEventListener('pointerdown', e => {
+    if (!document.body.classList.contains('noui')) return;
+    const now = performance.now();
+    if (now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) { showUI(); lastTap.t = 0; return; }
+    lastTap = { t: now, x: e.clientX, y: e.clientY };
+  });
   $('hdrBtn').addEventListener('click', () => { const t = $('hdrTest'); t.style.display = t.style.display === 'flex' ? 'none' : 'flex'; });
   powerEl.addEventListener('input', () => { power = +powerEl.value; });
 
