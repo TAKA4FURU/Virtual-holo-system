@@ -11,10 +11,10 @@
 <title>ジャイロ連動 ホロ サンプル BIG_cat</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; overflow: hidden; background: #000; color: #eee;
+  html, body { height: 100%; overflow: hidden; background: #1c1c22; color: #eee;
     font-family: -apple-system, "Hiragino Sans", sans-serif; touch-action: none; user-select: none; -webkit-user-select: none; }
 
-  #card { position: fixed; inset: 0; overflow: hidden; background: var(--bg, #1c1c22); transition: background .3s; }
+  #card { position: fixed; top: 0; left: 0; right: 0; height: var(--fullh, 100%); overflow: hidden; background: var(--bg, #1c1c22); transition: background .3s; }
 
   /* 各レイヤー：素材画像(2154x2154)と同じ大きさの箱。動かすのは transform だけ */
   .layer { position: absolute; will-change: transform; pointer-events: none; }
@@ -27,7 +27,7 @@
   .glint img { position: absolute; opacity: 0; will-change: opacity; dynamic-range-limit: no-limit; }
 
   /* UI */
-  #ui { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  #ui { position: fixed; left: 0; right: 0; bottom: calc(0px - var(--gap, 0px)); padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     display: flex; gap: 8px 10px; align-items: center; justify-content: center; flex-wrap: wrap;
     background: linear-gradient(transparent, rgba(0,0,0,.7)); font-size: 13px; z-index: 5; }
   #ui button { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.25);
@@ -40,7 +40,7 @@
   #status { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 0; right: 0; text-align: center;
     font-size: 12px; opacity: .55; z-index: 5; }
 
-  #panel { position: fixed; left: 10px; right: 10px; bottom: calc(110px + env(safe-area-inset-bottom)); z-index: 6;
+  #panel { position: fixed; left: 10px; right: 10px; bottom: calc(110px + env(safe-area-inset-bottom) - var(--gap, 0px)); z-index: 6;
     display: none; max-height: 58vh; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
     background: rgba(10,10,16,.92); border: 1px solid rgba(255,255,255,.15); border-radius: 14px; padding: 6px 12px; font-size: 12px; }
   #panel .row { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
@@ -54,7 +54,7 @@
   #panel .num { width: 4.2em; background: #2a2a33; color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 6px;
     padding: 3px 4px; font-size: 16px; text-align: right; -moz-appearance: textfield; }  /* 16px：iPhoneで入力時に画面が拡大されないように */
   #panel .num::-webkit-inner-spin-button { -webkit-appearance: none; }
-  #toast { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 7;
+  #toast { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom) - var(--gap, 0px)); transform: translateX(-50%); z-index: 7;
     background: rgba(0,0,0,.75); color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 13px; pointer-events: none;
     opacity: 0; transition: opacity .4s; white-space: nowrap; }
   body.noui #ui, body.noui #status, body.noui #panel, body.noui #hdrTest { display: none !important; }
@@ -180,7 +180,21 @@
 
   // ===== ホロの塗り =====
   const axisValue = (axis, x, y) => axis === 'x' ? x : axis === 'y' ? y : x * .82 + y * .57;
-  const portraitH = () => Math.max(innerWidth, innerHeight);
+  // 画面の本当の高さ。ホーム画面から全画面で開くと、iPhoneが知らせる高さ(innerHeight)が
+  // ステータスバーの分だけ短いことがあるので、そのときは端末の画面の高さを使う
+  const standalone = () => navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  function fullH() {
+    if (!standalone()) return innerHeight;
+    const portrait = innerHeight >= innerWidth;
+    const sh = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    return Math.max(innerHeight, sh);
+  }
+  function applyFullH() {
+    const h = fullH();
+    document.documentElement.style.setProperty('--fullh', h + 'px');
+    document.documentElement.style.setProperty('--gap', (h - innerHeight) + 'px');
+  }
+  const portraitH = () => Math.max(innerWidth, fullH());
 
   // 色相→RGB（彩度100%・明度62%）
   function hueRGB(h) {
@@ -270,7 +284,8 @@
 
   // ===== 画面サイズが変わったときだけ作り直す =====
   function rebuild() {
-    const W = innerWidth, H = innerHeight;
+    applyFullH();
+    const W = innerWidth, H = fullH();
     box.k = W / AREA;                          // 表示エリアを横幅に合わせる
     for (const k of ORDER) {
       const c = L[k], r = ASSETS.img[c.file];
@@ -462,7 +477,8 @@
     e.currentTarget.textContent = '背景：' + BGS[bgi][0];
   });
 
-  let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(rebuild, 150); });
+  let rz; const onRz = () => { clearTimeout(rz); rz = setTimeout(rebuild, 150); };
+  window.addEventListener('resize', onRz); window.addEventListener('orientationchange', onRz);
   buildPanel();
   rebuild();
   requestAnimationFrame(tick);
