@@ -118,9 +118,9 @@
   const L = {
     // 00 TEXT「みっけねこ」：文字の形はページを開いたときに選んだ書体で描く。影（00 TEXT_DS）は猫の上にだけ落ちる
     textDS:  { file: '04_CHARA_BG', mask: '00_TEXT_DS', caster: 'text', name: '00 TEXT_DS（猫に落ちる影）', kind: 'shadow', link: 'charaB',
-               visible: true, opacity: 50, sblur: 60, lightX: 0, lightY: -20, move: 40 },
+               visible: true, opacity: 50, sblur: 60, lightX: 0, lightY: -10, move: 40 },
     bigDS:   { file: '04_CHARA_BG', mask: '01_BIG_DS', shape: '01_BIG_BG', caster: 'bigBG', name: '01 BIG_DS（「ビッグ」が猫に落とす影）', kind: 'shadow', link: 'charaB',
-               visible: true, opacity: 50, sblur: 60, lightX: 0, lightY: 20, move: 40 },
+               visible: true, opacity: 50, sblur: 60, lightX: 0, lightY: -10, move: 40 },
     textBG:  { file: '00_TEXT_BG',  name: '00 TEXT_BG（縁取り）', kind: 'base', link: 'text', visible: true, gray: 0, opacity: 100 },
     text:    { file: '00_TEXT',     name: '00 TEXT「みっけねこ」', kind: 'holo', pats: ['v', 'h', 'radial'], isText: true,
                visible: true, axis: 'xy', pattern: 'h', offset: 300, size: 2, opacity: 100, dist: 0,
