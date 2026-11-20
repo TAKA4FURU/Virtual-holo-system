@@ -381,9 +381,18 @@
   const ORBIT_SEC = 2, ORBIT_R = 0.8;
   let orbit = false;
   if (matchMedia('(hover: hover) and (pointer: fine)').matches) $('orbitBtn').style.display = '';
-  $('orbitBtn').addEventListener('click', e => {
-    orbit = !orbit; e.currentTarget.textContent = '自動で回す：' + (orbit ? 'オン' : 'オフ');
+  function toggleOrbit() {
+    orbit = !orbit; $('orbitBtn').textContent = '自動で回す：' + (orbit ? 'オン' : 'オフ');
     if (!orbit) target = { x: 0, y: 0 };
+  }
+  $('orbitBtn').addEventListener('click', toggleOrbit);
+  // スペースキーでも切り替え（いつでも。数値の入力中は除く）
+  window.addEventListener('keydown', e => {
+    if (e.code !== 'Space' || e.repeat) return;
+    if (e.target.closest && e.target.closest('input, select, textarea')) return;
+    e.preventDefault();                       // フォーカス中のボタンが押されないように
+    toggleOrbit();
+    if (document.body.classList.contains('noui')) toast('自動で回す：' + (orbit ? 'オン' : 'オフ'));
   });
   function onPointer(e) {
     if (gyroActive || orbit) return;
