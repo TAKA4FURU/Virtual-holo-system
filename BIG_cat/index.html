@@ -77,6 +77,7 @@
 <div id="ui">
   <label>強さ <input type="range" id="power" min="0" max="10" step="1" value="8"> <input type="number" id="powerNum" class="pnum" min="0" max="10" step="1" value="8"></label>
   <button id="bgBtn">背景：濃いグレー</button>
+  <button id="orbitBtn" style="display:none">自動で回す：オフ</button>
   <button id="recenter">水平リセット</button>
   <button id="panelBtn">ホロ設定</button>
   <button id="hideBtn">表示を消す</button>
@@ -376,8 +377,16 @@
   }
   $('startBtn').addEventListener('click', start);
   $('recenter').addEventListener('click', () => { if (lastRaw) neutral = { ...lastRaw }; lastVal = null; vel = { x: 0, y: 0 }; target = { x: 0, y: 0 }; });
+  // パソコン用：見えないマウスが画面を2秒で一周するように、傾きを自動で円運動させる
+  const ORBIT_SEC = 2, ORBIT_R = 0.8;
+  let orbit = false;
+  if (matchMedia('(hover: hover) and (pointer: fine)').matches) $('orbitBtn').style.display = '';
+  $('orbitBtn').addEventListener('click', e => {
+    orbit = !orbit; e.currentTarget.textContent = '自動で回す：' + (orbit ? 'オン' : 'オフ');
+    if (!orbit) target = { x: 0, y: 0 };
+  });
   function onPointer(e) {
-    if (gyroActive) return;
+    if (gyroActive || orbit) return;
     if (e.target.closest && e.target.closest('#ui, #panel, #hdrTest')) return;
     target.x = clamp((e.clientX / innerWidth - .5) * 2, -1, 1);
     target.y = clamp((e.clientY / innerHeight - .5) * 2, -1, 1);
@@ -402,8 +411,9 @@
   let lastT = performance.now();
   function tick(t) {
     const dt = clamp((t - lastT) / 1000, .001, 1 / 30); lastT = t;
+    if (orbit) { const a = t / 1000 / ORBIT_SEC * 2 * Math.PI; target.x = Math.cos(a) * ORBIT_R; target.y = Math.sin(a) * ORBIT_R; }
     let tx = target.x, ty = target.y;
-    if (gyroActive && lastVal) {
+    if (gyroActive && lastVal && !orbit) {
       const lead = Math.min(performance.now() / 1000 - lastEvtT + LEAD, .06);
       tx = clamp(lastVal.x + vel.x * lead, -1.15, 1.15); ty = clamp(lastVal.y + vel.y * lead, -1.15, 1.15);
     }
