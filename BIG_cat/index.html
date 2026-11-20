@@ -106,7 +106,8 @@
   const MAX_TILT = 25;         // この角度(度)傾けたら最大
   const SPRING_K = 260, SPRING_DAMP = 0.78, LEAD = 0.02;
   const BLUR_MAX = 20;         // ぼかし100%のときのpx
-  const SPIN_DEG = 140;        // ラジアル：最大の傾きで回る角度
+  const SPIN_DEG = 140;
+  const SHADOW_PX = 128;      // 影のずれ：ライトの傾き1・距離1あたり（4096の座標）        // ラジアル：最大の傾きで回る角度
   const GLINT_ANG = 35 * Math.PI / 180, GLINT_SPEED = 0.8, GLINT_WIDTH = 0.12;
 
   // ===== レイヤー（奥 → 手前）=====
@@ -117,7 +118,7 @@
   const L = {
     // 00 TEXT「みっけねこ」：文字の形はページを開いたときに選んだ書体で描く。影（00 TEXT_DS）は猫の上にだけ落ちる
     textDS:  { file: '04_CHARA_BG', mask: '00_TEXT_DS', name: '00 TEXT_DS（猫に落ちる影）', kind: 'shadow', link: 'charaB',
-               visible: true, opacity: 60, sblur: 30, sx: 40, sy: 230 },
+               visible: true, opacity: 60, sblur: 30, lightX: -5, lightY: -30, move: 35 },
     textBG:  { file: '00_TEXT_BG',  name: '00 TEXT_BG（縁取り）', kind: 'base', link: 'text', visible: true, gray: 0, opacity: 100 },
     text:    { file: '00_TEXT',     name: '00 TEXT「みっけねこ」', kind: 'holo', pats: ['v', 'h', 'radial'], isText: true,
                visible: true, axis: 'xy', pattern: 'h', offset: 300, size: 2, opacity: 100, dist: 0,
@@ -307,7 +308,7 @@
     if (c.fill) paintFill(c.fill);
     if (c.kind === 'shadow' && ASSETS.img[c.mask]) {     // 影は猫の箱の中で、文字の位置＋ずれの所に置く
       const m = ASSETS.img[c.mask];
-      Object.assign(c.inner.style, { left: (m.x + c.sx - r.x) * box.k + 'px', top: (m.y + c.sy - r.y) * box.k + 'px',
+      Object.assign(c.inner.style, { left: (m.x - r.x) * box.k + 'px', top: (m.y - r.y) * box.k + 'px',
         width: m.w * box.k + 'px', height: m.h * box.k + 'px' });
     }
     if (c.kind === 'line') for (const g of c.bands) Object.assign(g.im.style, {
@@ -451,13 +452,27 @@
       if (c.fill) moveFill(c.fill, clamp(x, -1.5, 1.5), clamp(y, -1.5, 1.5));
       if (c.glint) updateGlint(c, sp.x, sp.y);
     }
+    updateTextShadow(x, y);
     requestAnimationFrame(tick);
+  }
+
+  // ===== 文字の影：ライトは現実の空間（スマホの外）に固定。傾けると光の向きが変わり、影が猫の上でずれる =====
+  // 影のずれ ＝ 文字と猫の距離の差 × ライトの向き（光が上から来れば影は下へ）
+  function updateTextShadow(x, y) {
+    const d = L.textDS; if (!d.visible || !d.inner) return;
+    const dz = zOf('textDS') - zOf('text');
+    if (dz <= 0) { d.inner.style.visibility = 'hidden'; return; }    // 文字が猫より奥なら影は猫に落ちない
+    d.inner.style.visibility = '';
+    const m = d.move / 100 * .5;
+    const lx = d.lightX / 100 - x * m, ly = d.lightY / 100 - y * m;
+    const dx = -lx * dz * SHADOW_PX * box.k, dy = -ly * dz * SHADOW_PX * box.k;
+    d.inner.style.transform = `translate3d(${dx.toFixed(2)}px,${dy.toFixed(2)}px,0)`;
   }
 
   // ===== 設定パネル =====
   // スライダーの右に数値入力欄。どちらを変えても同じ値になる
   const LIMITS = { fsize: [100, 400, 5], ty: [700, 3400, 10], bold: [0, 20, 1], edge: [0, 50, 1],
-    sblur: [0, 80, 1], sx: [-300, 300, 5], sy: [-300, 400, 5], offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 30, .01] };
+    sblur: [0, 80, 1], lightX: [-100, 100, 1], lightY: [-100, 100, 1], move: [0, 200, 1], offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 30, .01] };
   function slider(k, f, label, unit = '') {
     const [min, max, step] = LIMITS[f];
     return `<label class="sl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${L[k][f]}" data-k="${k}" data-f="${f}">` +
@@ -476,7 +491,7 @@
         `<option value="${v}"${c.font === v ? ' selected' : ''}>${n}</option>`).join('')}</select>`;
       h += `</div>`;
       if (c.isText) { h += slider(k, 'fsize', '文字の大きさ'); h += slider(k, 'ty', '上下の位置'); h += slider(k, 'bold', '太さを足す'); h += slider(k, 'edge', '縁取りの太さ'); }
-      if (c.kind === 'shadow') { h += slider(k, 'sblur', '影のぼかし'); h += slider(k, 'sx', '影のずれ（横）'); h += slider(k, 'sy', '影のずれ（縦）'); }
+      if (c.kind === 'shadow') { h += slider(k, 'sblur', '影のぼかし'); h += slider(k, 'lightX', 'ライト左右（−左）'); h += slider(k, 'lightY', 'ライト上下（＋下）'); h += slider(k, 'move', '傾きで動く量', '%'); }
       if (c.kind === 'line') h += slider(k, 'offset', '光の開始位置');
       if (c.kind === 'holo') { h += slider(k, 'offset', '開始位置'); h += slider(k, 'size', 'サイズ'); }
       if (c.kind === 'base') h += slider(k, 'gray', '色（黒〜50%灰）', '%');
@@ -505,7 +520,6 @@
       }
       if (f === 'blur') applyBlur(k);
       if (['fsize', 'ty', 'bold', 'edge', 'sblur'].includes(f)) { clearTimeout(textTimer); textTimer = setTimeout(buildText, 60); }
-      if (f === 'sx' || f === 'sy') placeLayer('textDS');
       if (f === 'opacity' || f === 'gray') applyLooks();
       if (f === 'dist') { applyOrder(); if (!v) for (const q of ORDER) if (q === k || L[q].link === k) L[q].el.style.transform = ''; }
     };
