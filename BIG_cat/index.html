@@ -78,7 +78,7 @@
 <div id="panel"></div>
 
 <div id="ui">
-  <label>強さ <input type="range" id="power" min="0" max="10" step="1" value="5"> <input type="number" id="powerNum" class="pnum" min="0" max="10" step="1" value="5"></label>
+  <label>強さ <input type="range" id="power" min="0" max="10" step="1" value="8"> <input type="number" id="powerNum" class="pnum" min="0" max="10" step="1" value="8"></label>
   <button id="bgBtn">背景：濃いグレー</button>
   <button id="recenter">水平リセット</button>
   <button id="panelBtn">ホロ設定</button>
@@ -117,8 +117,10 @@
   // dist: カメラからの距離 0（近い）〜30（遠い）。近いものほど手前に重なる
   const L = {
     // 00 TEXT「みっけねこ」：文字の形はページを開いたときに選んだ書体で描く。影（00 TEXT_DS）は猫の上にだけ落ちる
-    textDS:  { file: '04_CHARA_BG', mask: '00_TEXT_DS', name: '00 TEXT_DS（猫に落ちる影）', kind: 'shadow', link: 'charaB',
-               visible: true, opacity: 60, sblur: 30, lightX: -5, lightY: -30, move: 35 },
+    textDS:  { file: '04_CHARA_BG', mask: '00_TEXT_DS', caster: 'text', name: '00 TEXT_DS（猫に落ちる影）', kind: 'shadow', link: 'charaB',
+               visible: true, opacity: 50, sblur: 60, lightX: 0, lightY: -20, move: 40 },
+    bigDS:   { file: '04_CHARA_BG', mask: '01_BIG_DS', shape: '01_BIG_BG', caster: 'bigBG', name: '01 BIG_DS（「ビッグ」が猫に落とす影）', kind: 'shadow', link: 'charaB',
+               visible: true, opacity: 50, sblur: 60, lightX: 0, lightY: 20, move: 40 },
     textBG:  { file: '00_TEXT_BG',  name: '00 TEXT_BG（縁取り）', kind: 'base', link: 'text', visible: true, gray: 0, opacity: 100 },
     text:    { file: '00_TEXT',     name: '00 TEXT「みっけねこ」', kind: 'holo', pats: ['v', 'h', 'radial'], isText: true,
                visible: true, axis: 'xy', pattern: 'h', offset: 300, size: 2, opacity: 100, dist: 0,
@@ -147,7 +149,7 @@
     bigB:    { file: '01_BIG_B',    name: '01 BIG_B',    kind: 'holo', pats: ['v', 'h'],
                visible: true, axis: 'xy', pattern: 'h', offset: 0,   size: 2, opacity: 100, dist: 0 },
   };
-  const ORDER = ['dust', 'gokou', 'foods', 'charaBG', 'charaR', 'charaC', 'charaG', 'charaB', 'textDS', 'starDS', 'star', 'bigBG', 'bigG', 'bigB', 'textBG', 'text'];
+  const ORDER = ['dust', 'gokou', 'foods', 'charaBG', 'charaR', 'charaC', 'charaG', 'charaB', 'bigDS', 'textDS', 'starDS', 'star', 'bigBG', 'bigG', 'bigB', 'textBG', 'text'];
   // 書体の候補（太い丸ゴシック中心）。Googleフォントは「みっけねこ」の5文字分だけ読み込む
   const FONTS = [
     ['mplus',   'M PLUS Rounded 1c（極太）', 900, '"M PLUS Rounded 1c"'],
@@ -358,6 +360,25 @@
     L.textDS.inner.style.webkitMaskImage = L.textDS.inner.style.maskImage = `url("${ASSETS.img['00_TEXT_DS'].src}")`;
     for (const k of ['text', 'textBG', 'textDS']) placeLayer(k);
   }
+  // 絵の形（BIG_BGなど）から、ぼかした影の形を作る
+  const shadowJobs = {};
+  function buildShadow(k) {
+    const c = L[k], r = ASSETS.img[c.shape], job = (shadowJobs[k] || 0) + 1; shadowJobs[k] = job;
+    const im = new Image();
+    im.onload = () => {
+      const RES = .5, pad = c.sblur * 2 + 10, w = r.w + pad * 2, h = r.h + pad * 2;
+      const cv = document.createElement('canvas'); cv.width = Math.ceil(w * RES); cv.height = Math.ceil(h * RES);
+      const g = cv.getContext('2d'), OFF = cv.width * 2;
+      if (c.sblur > 0) { g.shadowColor = '#fff'; g.shadowBlur = c.sblur * RES; g.shadowOffsetX = OFF; }
+      g.drawImage(im, pad * RES - (c.sblur > 0 ? OFF : 0), pad * RES, r.w * RES, r.h * RES);
+      putImg(c.mask, r.x - pad, r.y - pad, w, h, cv).then(() => {
+        if (shadowJobs[k] !== job) return;
+        c.inner.style.webkitMaskImage = c.inner.style.maskImage = `url("${ASSETS.img[c.mask].src}")`;
+        placeLayer(k);
+      });
+    };
+    im.src = r.src;
+  }
   // 書体を読み込んでから描き直す（読み込めないときは端末の丸ゴシックで描く）
   async function loadFontAndBuild() {
     const f = fontOf(L.text);
@@ -459,8 +480,10 @@
   // ===== 文字の影：ライトは現実の空間（スマホの外）に固定。傾けると光の向きが変わり、影が猫の上でずれる =====
   // 影のずれ ＝ 文字と猫の距離の差 × ライトの向き（光が上から来れば影は下へ）
   function updateTextShadow(x, y) {
-    const d = L.textDS; if (!d.visible || !d.inner) return;
-    const dz = zOf('textDS') - zOf('text');
+    for (const k of ORDER) if (L[k].kind === 'shadow') moveShadow(L[k], zOf(k) - zOf(L[k].caster), x, y);
+  }
+  function moveShadow(d, dz, x, y) {
+    if (!d.visible || !d.inner) return;
     if (dz <= 0) { d.inner.style.visibility = 'hidden'; return; }    // 文字が猫より奥なら影は猫に落ちない
     d.inner.style.visibility = '';
     const m = d.move / 100 * .5;
@@ -519,7 +542,8 @@
         repaint = c.fill;
       }
       if (f === 'blur') applyBlur(k);
-      if (['fsize', 'ty', 'bold', 'edge', 'sblur'].includes(f)) { clearTimeout(textTimer); textTimer = setTimeout(buildText, 60); }
+      if (f === 'sblur' && L[k].shape) buildShadow(k);
+      else if (['fsize', 'ty', 'bold', 'edge', 'sblur'].includes(f)) { clearTimeout(textTimer); textTimer = setTimeout(buildText, 60); }
       if (f === 'opacity' || f === 'gray') applyLooks();
       if (f === 'dist') { applyOrder(); if (!v) for (const q of ORDER) if (q === k || L[q].link === k) L[q].el.style.transform = ''; }
     };
@@ -549,7 +573,7 @@
     lastTap = { t: now, x: e.clientX, y: e.clientY };
   });
   function setPower(v) {
-    v = Math.round(clamp(isNaN(v) ? 5 : v, 0, 10));
+    v = Math.round(clamp(isNaN(v) ? 8 : v, 0, 10));
     powerEl.value = v; $('powerNum').value = v; power = v / 10 * POWER_MAX;
   }
   powerEl.addEventListener('input', () => setPower(+powerEl.value));
@@ -566,6 +590,7 @@
   let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(rebuild, 150); });
   buildPanel();
   rebuild();
+  buildShadow('bigDS');
   buildText();            // まず端末の書体で描き、書体が届いたら描き直す
   loadFontAndBuild();
   requestAnimationFrame(tick);
