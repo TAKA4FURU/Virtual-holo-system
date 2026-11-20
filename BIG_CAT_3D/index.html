@@ -118,8 +118,8 @@
                visible: true, axis: 'xy', pattern: 'h',      offset: 240, size: 2, opacity: 80, blur: 10, dist: 15 },
     // 3Dの猫（2Dの猫 CHARA_R/G/B/C・CHARA_BG の代わり。置く位置は CHARA_BG と同じ）
     cat3d:   { file: '04_CHARA_BG', name: '3D CAT（仮モデル）', kind: '3d', dist: 6, visible: true,
-               axis: 'xy', offset: 0, holo: 70, grain: 60, rot: 15, light: 100, shadow: 70, soft: 30, scale: 100,
-               lightX: -20, lightY: 45, shadowDist: 30, posY: 6 },
+               axis: 'xy', pats: ['v', 'h', 'z'], pattern: 'h', offset: 0, size: 2, holo: 70, grain: 60, alpha: 100,
+               look: 100, zpx: 30, light: 100, lightX: -20, lightY: 45, shadow: 70, soft: 30, scale: 100, posY: 6 },
     starDS:  { file: '03_STAR_DS',  name: '03 STAR_DS',  kind: 'base', dist: 4.02, visible: true, gray: 0, opacity: 100 },
     star:    { file: '02_STAR',     name: '02 STAR',     kind: 'holo', pats: ['v', 'h'],
                visible: true, axis: 'xy', pattern: 'h', offset: 60,  size: 2, opacity: 100, dist: 4 },
@@ -130,7 +130,7 @@
                visible: true, axis: 'xy', pattern: 'h', offset: 0,   size: 2, opacity: 100, dist: 0 },
   };
   const ORDER = ['dust', 'gokou', 'foods', 'cat3d', 'starDS', 'star', 'bigBG', 'bigG', 'bigB'];
-  const PATTERN_NAMES = { v: '縦', h: '横', radial: 'ラジアル' };
+  const PATTERN_NAMES = { v: '縦', h: '横', radial: 'ラジアル', z: '手前から奥' };
 
   const zOf = k => L[k].dist;
   // 重なり順：カメラに近いものほど上。同じ距離ならファイル番号の小さいものが上
@@ -172,9 +172,11 @@
   }
 
   // ===== 3Dの猫（WebGLで直接描く。今は仮モデル：コードで作った簡単な形）=====
-  // ・砂の像のようなザラザラした質感（表面に細かいノイズ）
-  // ・傾きでホロの色が変わる
+  // ・砂の像のようなザラザラした質感（表面に細かいノイズ）。光沢なし（ランバート）
+  // ・傾きでホロの色が変わる（向き：縦／横／手前から奥、サイズ1〜20）
   // ・画面の手前（スマホの外）からライトが当たり、手前の「ビッグ」の影を受ける
+  // ・「スマホという窓から別の空間を覗く」見え方：画面の面（距離0）は動かず、奥にある点ほど大きくずれる
+  // ・表側の面だけを描く（バックフェースカリング）。不透明度を下げるとガラスのように透ける
   function createCat3D(canvas) {
     const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
     if (!gl) return null;
@@ -224,7 +226,7 @@
       }
       for (let i = 0; i < ring; i++) for (let j = 0; j < seg; j++) {
         const a = base + i * (seg + 1) + j, c = a + seg + 1;
-        idx.push(a, c, a + 1, c, c + 1, a + 1);
+        idx.push(a, a + 1, c, c, a + 1, c + 1);          // 面の表裏を体と同じ向きにそろえる
       }
     }
     ellipsoid([0, .35, 0], [.40, .34, .34]);                                   // 頭
@@ -240,22 +242,29 @@
     capsule([.20, -.32, -.12], [.38, -.20, -.15], .05);                         // しっぽ
     capsule([.38, -.20, -.15], [.45, .02, -.10], .05);
     const MODEL_H = 1.38, MODEL_CY = .21;                                        // 高さと中心
+    let zmin = 1e9, zmax = -1e9; for (let i = 2; i < pos.length; i += 3) { zmin = Math.min(zmin, pos[i]); zmax = Math.max(zmax, pos[i]); }
+    const MODEL_D = zmax - zmin;                                                 // 奥行き
 
     // --- シェーダー ---
     const vs = `
       attribute vec3 aPos; attribute vec3 aNor;
-      uniform mat3 uRot; uniform vec2 uScreen; uniform vec2 uCenter; uniform float uScale;
-      varying vec3 vObj; varying vec3 vN; varying vec3 vP;
+      uniform vec2 uScreen; uniform vec2 uCenter; uniform float uScale;
+      uniform vec2 uShift; uniform float uDist, uZpx, uLook;
+      varying vec3 vObj; varying vec3 vN; varying vec3 vW;
       void main() {
-        vec3 p = uRot * aPos;
-        vN = uRot * aNor; vObj = aPos;
-        vP = vec3(uCenter.x + p.x * uScale, uCenter.y - p.y * uScale, p.z * uScale);   // 画面のpx（yは下向き）
-        gl_Position = vec4(vP.x / uScreen.x * 2. - 1., 1. - vP.y / uScreen.y * 2., -p.z * .5, 1.);
+        vN = aNor; vObj = aPos;
+        // 空間内の位置（px。yは下向き、zは手前向き）。猫の中心が z=0
+        vW = vec3(uCenter.x + aPos.x * uScale, uCenter.y - aPos.y * uScale, aPos.z * uScale);
+        // 窓から覗く見え方：その点の奥行き（距離の単位）に比例して画面上でずれる
+        float d = uDist - uLook * vW.z / uZpx;
+        vec2 sp = vW.xy + uShift * d;
+        gl_Position = vec4(sp.x / uScreen.x * 2. - 1., 1. - sp.y / uScreen.y * 2., -aPos.z * .5, 1.);
       }`;
     const fs = `
       precision highp float;
-      varying vec3 vObj; varying vec3 vN; varying vec3 vP;
-      uniform vec3 uLight; uniform float uHue, uHolo, uGrain, uLightAmt, uShadow, uSoft, uDepth;
+      varying vec3 vObj; varying vec3 vN; varying vec3 vW;
+      uniform vec3 uLight; uniform float uHue, uHolo, uGrain, uLightAmt, uShadow, uSoft, uDepth, uAlpha;
+      uniform float uPat, uPeriod; uniform vec2 uScreenC;
       uniform sampler2D uMask; uniform vec4 uMaskRect;
       float hash(vec3 p) { p = fract(p * .3183099 + .1); p *= 17.; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
       float noise(vec3 x) {
@@ -277,23 +286,23 @@
         vec3 grad = vec3(sand(vObj + vec3(e,0,0)) - g0, sand(vObj + vec3(0,e,0)) - g0, sand(vObj + vec3(0,0,e)) - g0) / e;
         n = normalize(n - uGrain * .012 * (grad - dot(grad, n) * n));
         vec3 ns = vec3(n.x, -n.y, n.z);                      // 画面の向き（yは下向き）
-        // 色：砂色にホロの虹色を重ねる（傾きと面の向きで色が変わる）
+        // ホロの虹色：縦（左右で色が変わる）／横（上下で変わる）／手前から奥（奥行きで変わる）
+        float coord = uPat < .5 ? vW.x - uScreenC.x : (uPat < 1.5 ? vW.y - uScreenC.y : -vW.z);
         float grainC = .78 + .44 * g0 * uGrain + .22 * (1. - uGrain);
         vec3 sandCol = vec3(.86, .77, .62) * grainC;
-        vec3 holo = hsl(uHue + 90. * (n.x + n.y) + 40. * g0) * grainC;
+        vec3 holo = hsl(uHue + 360. * coord / uPeriod + 25. * g0) * grainC;
         vec3 alb = mix(sandCol, holo, uHolo);
-        // 光：手前からのライト
+        // 光：手前からのライト。光沢なし（ランバート）
         vec3 L = normalize(uLight);
         float diff = max(dot(ns, L), 0.);
-        float spec = pow(max(dot(reflect(-L, ns), vec3(0., 0., 1.)), 0.), 18.) * .18;
         // 影：ライトに向かって進み、手前の「ビッグ」の板に当たれば影
-        float t = (uDepth - vP.z) / max(L.z, .05);
-        vec2 hit = vP.xy + L.xy * t;
+        float t = (uDepth - vW.z) / max(L.z, .05);
+        vec2 hit = vW.xy + L.xy * t;
         float s = uSoft;
         float m = maskAt(hit) * .4 + (maskAt(hit + vec2(s, 0.)) + maskAt(hit - vec2(s, 0.)) + maskAt(hit + vec2(0., s)) + maskAt(hit - vec2(0., s))) * .15;
         float shade = 1. - uShadow * m;
-        vec3 col = alb * (.32 + diff * uLightAmt * shade) + spec * uLightAmt * shade;
-        gl_FragColor = vec4(col, 1.);
+        vec3 col = alb * (.32 + diff * uLightAmt * shade);
+        gl_FragColor = vec4(col * uAlpha, uAlpha);           // 透明度つき（色は透明度をかけた形）
       }`;
     function sh(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
@@ -307,9 +316,11 @@
     buf(pos, 'aPos'); buf(nor, 'aNor');
     const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
-    const U = {}; for (const n of ['uRot', 'uScreen', 'uCenter', 'uScale', 'uLight', 'uHue', 'uHolo', 'uGrain', 'uLightAmt', 'uShadow', 'uSoft', 'uDepth', 'uMask', 'uMaskRect'])
+    const U = {}; for (const n of ['uScreen', 'uCenter', 'uScale', 'uShift', 'uDist', 'uZpx', 'uLook', 'uLight', 'uHue', 'uHolo', 'uGrain',
+      'uLightAmt', 'uShadow', 'uSoft', 'uDepth', 'uAlpha', 'uPat', 'uPeriod', 'uScreenC', 'uMask', 'uMaskRect'])
       U[n] = gl.getUniformLocation(prog, n);
     gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CW);   // 表側の面だけ描く
 
     // 影を落とす「ビッグ」の形（BIG_BG）
     const tex = gl.createTexture(); let texReady = false;
@@ -330,24 +341,27 @@
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
       canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
     }
-    // p: { cx, cy, height(px), yaw, pitch(度), light[3], hue, holo, grain, lightAmt, shadow, soft, depth, maskRect[4] }
+    // p: { cx, cy, height, shift[2], dist, zpx, look, light[3], hue, holo, grain, lightAmt, shadow, soft, depth, alpha, pat, period, maskRect[4] }
     function draw(p) {
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      const ya = p.yaw * Math.PI / 180, pa = p.pitch * Math.PI / 180;
-      const cy = Math.cos(ya), sy = Math.sin(ya), cp = Math.cos(pa), spi = Math.sin(pa);
-      // 回転（横の首振り × 縦のおじぎ）。列ごとに並べる
-      gl.uniformMatrix3fv(U.uRot, false, [cy, 0, -sy, sy * spi, cp, cy * spi, sy * cp, -spi, cy * cp]);
       const scale = p.height / MODEL_H;
-      gl.uniform2f(U.uScreen, W, H);
+      gl.uniform2f(U.uScreen, W, H); gl.uniform2f(U.uScreenC, W / 2, H / 2);
       gl.uniform2f(U.uCenter, p.cx, p.cy + MODEL_CY * scale);
       gl.uniform1f(U.uScale, scale);
+      gl.uniform2fv(U.uShift, p.shift); gl.uniform1f(U.uDist, p.dist); gl.uniform1f(U.uZpx, p.zpx); gl.uniform1f(U.uLook, p.look);
       gl.uniform3fv(U.uLight, p.light);
       gl.uniform1f(U.uHue, p.hue); gl.uniform1f(U.uHolo, p.holo); gl.uniform1f(U.uGrain, p.grain);
       gl.uniform1f(U.uLightAmt, p.lightAmt); gl.uniform1f(U.uShadow, texReady ? p.shadow : 0); gl.uniform1f(U.uSoft, p.soft);
       gl.uniform1f(U.uDepth, p.depth); gl.uniform4fv(U.uMaskRect, p.maskRect); gl.uniform1i(U.uMask, 0);
+      gl.uniform1f(U.uAlpha, p.alpha); gl.uniform1f(U.uPat, p.pat);
+      gl.uniform1f(U.uPeriod, p.pat === 2 ? MODEL_D * scale * p.size : p.period);   // 奥行きの虹は猫の奥行き基準
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
+      if (p.alpha < .999) {                     // ガラスのように透ける：奥の面も重ねて描く
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+      } else { gl.disable(gl.BLEND); gl.depthMask(true); }
       gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
+      gl.depthMask(true);
     }
     return { resize, draw, setMaskImage, tris: idx.length / 3, verts: pos.length / 3 };
   }
@@ -533,20 +547,23 @@
 
   // ===== 3Dの猫を描く（毎コマ）=====
   function drawCat(c, x, y) {
-    const sx = -x * c.dist * PX_PER_UNIT, sy = -y * c.dist * PX_PER_UNIT;     // 平面の層と同じ奥行きのずれ
-    const big = L.bigBG, bsx = -x * big.dist * PX_PER_UNIT, bsy = -y * big.dist * PX_PER_UNIT;
-    const v = axisValue(c.axis, x, y);
+    const big = L.bigBG;
+    const v = clamp(axisValue(c.axis, x, y), -1.55, 1.55);
     // ライトは現実の空間（スマホの外）に固定。スマホを傾けると、当たる向きが変わる
     // lightX：マイナス＝左から、lightY：プラス＝下から（スマホを持つ手元のほうから光が来るイメージ）
     const lx = c.lightX / 100 - x * .5, ly = c.lightY / 100 - y * .5;
     c.cat.draw({
-      cx: c.pos.left + c.geo.w / 2 + sx, cy: c.pos.top + c.geo.h / 2 + sy + c.geo.h * c.posY / 100,
+      cx: c.pos.left + c.geo.w / 2, cy: c.pos.top + c.geo.h / 2 + c.geo.h * c.posY / 100,
       height: c.geo.h * c.scale / 100,
-      yaw: -x * c.rot, pitch: -y * c.rot,
-      light: [lx, ly, 1], hue: v * SPIN_DEG + c.offset,
-      holo: c.holo / 100, grain: c.grain / 100, lightAmt: c.light / 100, shadow: c.shadow / 100, soft: c.soft / 100 * 12,
-      depth: (c.dist - big.dist) * c.shadowDist,          // 「ビッグ」の板までの距離(px)
-      maskRect: [big.pos.left + bsx, big.pos.top + bsy, big.geo.w, big.geo.h],
+      shift: [-x * PX_PER_UNIT, -y * PX_PER_UNIT],          // 距離1あたりのずれ（平面の層と同じ）
+      dist: c.dist, zpx: c.zpx, look: c.look / 100,          // 猫の各点の奥行き＝距離＋立体の厚み
+      light: [lx, ly, 1],
+      hue: c.offset + 360 * v / c.size, pat: c.pattern === 'v' ? 0 : c.pattern === 'h' ? 1 : 2,
+      period: c.size * portraitH(), size: c.size,
+      holo: c.holo / 100, grain: c.grain / 100, alpha: c.alpha / 100,
+      lightAmt: c.light / 100, shadow: c.shadow / 100, soft: c.soft / 100 * 12,
+      depth: (c.dist - big.dist) * c.zpx,                     // 「ビッグ」の板までの距離(px)
+      maskRect: [big.pos.left, big.pos.top, big.geo.w, big.geo.h],
     });
   }
 
@@ -581,7 +598,7 @@
   // スライダーの右に数値入力欄。どちらを変えても同じ値になる
   const LIMITS = { offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 30, .01],
     holo: [0, 100, 1], grain: [0, 100, 1], rot: [0, 40, 1], light: [0, 200, 1], shadow: [0, 100, 1], soft: [0, 100, 1], scale: [50, 150, 1],
-    lightX: [-100, 100, 1], lightY: [-100, 100, 1], shadowDist: [0, 60, 1], posY: [-30, 30, 1] };
+    lightX: [-100, 100, 1], lightY: [-100, 100, 1], posY: [-30, 30, 1], look: [0, 200, 1], alpha: [0, 100, 1], zpx: [5, 80, 1] };
   function slider(k, f, label, unit = '') {
     const [min, max, step] = LIMITS[f];
     return `<label class="sl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${L[k][f]}" data-k="${k}" data-f="${f}">` +
@@ -603,12 +620,13 @@
       if (c.opacity != null) h += slider(k, 'opacity', '不透明度', '%');
       if (c.far) h += slider(k, 'blur', 'ぼかし', '%');
       if (c.kind === '3d') {
-        h += slider(k, 'offset', '開始位置'); h += slider(k, 'holo', 'ホロの濃さ', '%'); h += slider(k, 'grain', 'ザラつき', '%');
-        h += slider(k, 'rot', '回転の大きさ', '°'); h += slider(k, 'light', 'ライトの明るさ', '%');
-        h += slider(k, 'shadow', '影の濃さ', '%'); h += slider(k, 'soft', '影のぼかし', '%'); h += slider(k, 'scale', '大きさ', '%');
-        h += slider(k, 'posY', '位置（上下）', '%');
+        h += slider(k, 'offset', '開始位置'); h += slider(k, 'size', 'サイズ');
+        h += slider(k, 'holo', 'ホロの濃さ', '%'); h += slider(k, 'grain', 'ザラつき', '%'); h += slider(k, 'alpha', '不透明度', '%');
+        h += slider(k, 'look', '覗き込みの強さ', '%'); h += slider(k, 'zpx', '奥行きの尺度');
+        h += slider(k, 'light', 'ライトの明るさ', '%');
         h += slider(k, 'lightX', 'ライト左右（−左）'); h += slider(k, 'lightY', 'ライト上下（＋下）');
-        h += slider(k, 'shadowDist', '影のずれ');
+        h += slider(k, 'shadow', '影の濃さ', '%'); h += slider(k, 'soft', '影のぼかし', '%');
+        h += slider(k, 'scale', '大きさ', '%'); h += slider(k, 'posY', '位置（上下）', '%');
       }
       h += slider(k, 'dist', 'カメラからの距離');
       rows.push(h + '</div>');
