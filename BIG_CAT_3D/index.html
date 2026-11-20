@@ -118,7 +118,7 @@
                visible: true, axis: 'xy', pattern: 'h',      offset: 240, size: 2, opacity: 80, blur: 10, dist: 15 },
     // 3Dの猫（2Dの猫 CHARA_R/G/B/C・CHARA_BG の代わり。置く位置は CHARA_BG と同じ）
     cat3d:   { file: '04_CHARA_BG', name: '3D CAT（仮モデル）', kind: '3d', dist: 6, visible: true,
-               axis: 'xy', pats: ['v', 'h', 'light'], pattern: 'light', offset: 0, size: 2, holo: 70, grain: 60, alpha: 100,
+               axis: 'xy', pats: ['v', 'h', 'light'], pattern: 'light', offset: 0, size: 2, holo: 70, grain: 0, blur: 0, alpha: 100,
                look: 100, zpx: 30, light: 100, lightX: -20, lightY: 45, shadow: 70, soft: 30, scale: 100, posY: 6 },
     starDS:  { file: '03_STAR_DS',  name: '03 STAR_DS',  kind: 'base', dist: 4.02, visible: true, gray: 0, opacity: 100 },
     star:    { file: '02_STAR',     name: '02 STAR',     kind: 'holo', pats: ['v', 'h'],
@@ -557,6 +557,11 @@
   // ===== 3Dの猫を描く（毎コマ）=====
   function drawCat(c, x, y) {
     const big = L.bigBG;
+    if (c.lastBlur !== c.blur) {                 // ぼかし：猫全体を1枚の絵としてぼかす（100%で20px）
+      const px = c.blur / 100 * BLUR_MAX;
+      c.el.style.filter = px < 0.3 ? 'none' : `blur(${px.toFixed(1)}px)`;
+      c.lastBlur = c.blur;
+    }
     const v = clamp(axisValue(c.axis, x, y), -1.55, 1.55);
     // ライトは現実の空間（スマホの外）に固定。スマホを傾けると、当たる向きが変わる
     // lightX：マイナス＝左から、lightY：プラス＝下から（スマホを持つ手元のほうから光が来るイメージ）
@@ -631,7 +636,7 @@
       if (c.far) h += slider(k, 'blur', 'ぼかし', '%');
       if (c.kind === '3d') {
         h += slider(k, 'offset', '開始位置'); h += slider(k, 'size', 'サイズ');
-        h += slider(k, 'holo', 'ホロの濃さ', '%'); h += slider(k, 'grain', 'ザラつき', '%'); h += slider(k, 'alpha', '不透明度', '%');
+        h += slider(k, 'holo', 'ホロの濃さ', '%'); h += slider(k, 'blur', 'ぼかし', '%'); h += slider(k, 'alpha', '不透明度', '%');
         h += slider(k, 'look', '覗き込みの強さ', '%'); h += slider(k, 'zpx', '奥行きの尺度');
         h += slider(k, 'light', 'ライトの明るさ', '%');
         h += slider(k, 'lightX', 'ライト左右（−左）'); h += slider(k, 'lightY', 'ライト上下（＋下）');
@@ -658,7 +663,7 @@
         if (!repaint) requestAnimationFrame(() => { paintFill(repaint); repaint = null; });
         repaint = c.fill;
       }
-      if (f === 'blur') applyBlur(k);
+      if (f === 'blur' && c.far) applyBlur(k);   // 3Dの猫のぼかしは描くときに反映
       if (f === 'opacity' || f === 'gray') applyLooks();
       if (f === 'dist') { applyOrder(); if (!v) c.el.style.transform = ''; }
     };
