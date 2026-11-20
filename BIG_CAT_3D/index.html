@@ -161,7 +161,7 @@
     if (c.kind === '3d') {
       const cv = document.createElement('canvas'); el.appendChild(cv);
       try { c.cat = createCat3D(cv); } catch (e) { console.error(e); c.cat = null; }
-      if (c.cat) c.cat.setMaskImage(ASSETS.img['01_BIG_BG'].src);
+      if (c.cat) { c.cat.setMaskImage(0, ASSETS.img['01_BIG_BG'].src); c.cat.setMaskImage(1, ASSETS.img['03_STAR_DS'].src); }
     }
     if (c.kind === 'line') {
       const im = new Image(); im.src = ASSETS.img[c.file]; im.alt = ''; el.appendChild(im);
@@ -175,7 +175,7 @@
   // ・砂の像のようなザラザラした質感（表面に細かいノイズ）。光沢なし（ランバート）
   // ・ホロの虹色（縦／横／ライト連動、サイズ1〜20）。ライト連動は本物のレインボーホログラムのように、
   //   光の向き・表面の向き・見る向きの関係で色が決まる（表面の細かいザラつきで粒っぽくきらめく）
-  // ・画面の手前（スマホの外）からライトが当たり、手前の「ビッグ」の影を受ける
+  // ・画面の手前（スマホの外）からライトが当たり、手前の「ビッグ」と「星」の影を受ける
   // ・「スマホという窓から別の空間を覗く」見え方：画面の面（距離0）は動かず、奥にある点ほど大きくずれる
   // ・表側の面だけを描く（バックフェースカリング）。不透明度は1枚の絵として透けさせる
   function createCat3D(canvas) {
@@ -267,6 +267,7 @@
       uniform vec3 uLight; uniform float uHue, uHolo, uGrain, uLightAmt, uShadow, uSoft, uDepth, uAlpha;
       uniform float uPat, uPeriod, uSize; uniform vec2 uScreenC;
       uniform sampler2D uMask; uniform vec4 uMaskRect;
+      uniform sampler2D uMask2; uniform vec4 uMaskRect2; uniform float uDepth2;
       float hash(vec3 p) { p = fract(p * .3183099 + .1); p *= 17.; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
       float noise(vec3 x) {
         vec3 i = floor(x), f = fract(x); f = f * f * (3. - 2. * f);
@@ -279,6 +280,11 @@
         vec2 uv = (sp - uMaskRect.xy) / uMaskRect.zw;
         if (uv.x < 0. || uv.y < 0. || uv.x > 1. || uv.y > 1.) return 0.;
         return texture2D(uMask, uv).a;
+      }
+      float mask2At(vec2 sp) {
+        vec2 uv = (sp - uMaskRect2.xy) / uMaskRect2.zw;
+        if (uv.x < 0. || uv.y < 0. || uv.x > 1. || uv.y > 1.) return 0.;
+        return texture2D(uMask2, uv).a;
       }
       void main() {
         vec3 n = normalize(vN);
@@ -313,6 +319,10 @@
         vec2 hit = vW.xy + L.xy * t;
         float s = uSoft;
         float m = maskAt(hit) * .4 + (maskAt(hit + vec2(s, 0.)) + maskAt(hit - vec2(s, 0.)) + maskAt(hit + vec2(0., s)) + maskAt(hit - vec2(0., s))) * .15;
+        // 星の影（星の層はビッグより奥にあるので、板までの距離が違う）
+        vec2 hit2 = vW.xy + L.xy * ((uDepth2 - vW.z) / max(L.z, .05));
+        float m2 = mask2At(hit2) * .4 + (mask2At(hit2 + vec2(s, 0.)) + mask2At(hit2 - vec2(s, 0.)) + mask2At(hit2 + vec2(0., s)) + mask2At(hit2 - vec2(0., s))) * .15;
+        m = 1. - (1. - m) * (1. - m2);                       // 2つの影を重ねる
         float shade = 1. - uShadow * m;
         vec3 col = alb * (.32 + diff * uLightAmt * shade);
         gl_FragColor = vec4(col, 1.);
@@ -330,24 +340,33 @@
     const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
     const U = {}; for (const n of ['uScreen', 'uCenter', 'uScale', 'uShift', 'uDist', 'uZpx', 'uLook', 'uLight', 'uHue', 'uHolo', 'uGrain',
-      'uLightAmt', 'uShadow', 'uSoft', 'uDepth', 'uPat', 'uPeriod', 'uSize', 'uScreenC', 'uMask', 'uMaskRect'])
+      'uLightAmt', 'uShadow', 'uSoft', 'uDepth', 'uPat', 'uPeriod', 'uSize', 'uScreenC', 'uMask', 'uMaskRect', 'uMask2', 'uMaskRect2', 'uDepth2'])
       U[n] = gl.getUniformLocation(prog, n);
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CW);   // 表側の面だけ描く
 
-    // 影を落とす「ビッグ」の形（BIG_BG）
-    const tex = gl.createTexture(); let texReady = false;
-    function setMaskImage(src) {
+    // 影を落とす形（0：ビッグ BIG_BG、1：星 STAR_DS）。大きい画像は縮めてから使う（影は少しぼかすので十分）
+    const texs = [gl.createTexture(), gl.createTexture()], ready = [false, false];
+    function setMaskImage(i, src, maxSide = 2048) {
       const im = new Image();
       im.onload = () => {
-        gl.bindTexture(gl.TEXTURE_2D, tex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+        let source = im;
+        const sc = Math.min(1, maxSide / Math.max(im.width, im.height));
+        if (sc < 1) {
+          source = document.createElement('canvas');
+          source.width = Math.round(im.width * sc); source.height = Math.round(im.height * sc);
+          source.getContext('2d').drawImage(im, 0, 0, source.width, source.height);
+        }
+        gl.bindTexture(gl.TEXTURE_2D, texs[i]);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
         for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]])
           gl.texParameteri(gl.TEXTURE_2D, p, v);
-        texReady = true;
+        ready[i] = true;
       };
       im.src = src;
     }
+    // 読み込み前は何も影を落とさない透明の画像を入れておく
+    for (const t of texs) { gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); }
     let W = 1, H = 1, dpr = 1;
     function resize(w, h) {
       W = w; H = h; dpr = Math.min(window.devicePixelRatio || 1, 2);   // 細かすぎる解像度は不要（重くなるだけ）
@@ -365,11 +384,13 @@
       gl.uniform2fv(U.uShift, p.shift); gl.uniform1f(U.uDist, p.dist); gl.uniform1f(U.uZpx, p.zpx); gl.uniform1f(U.uLook, p.look);
       gl.uniform3fv(U.uLight, p.light);
       gl.uniform1f(U.uHue, p.hue); gl.uniform1f(U.uHolo, p.holo); gl.uniform1f(U.uGrain, p.grain);
-      gl.uniform1f(U.uLightAmt, p.lightAmt); gl.uniform1f(U.uShadow, texReady ? p.shadow : 0); gl.uniform1f(U.uSoft, p.soft);
+      gl.uniform1f(U.uLightAmt, p.lightAmt); gl.uniform1f(U.uShadow, p.shadow); gl.uniform1f(U.uSoft, p.soft);
       gl.uniform1f(U.uDepth, p.depth); gl.uniform4fv(U.uMaskRect, p.maskRect); gl.uniform1i(U.uMask, 0);
+      gl.uniform1f(U.uDepth2, p.depth2); gl.uniform4fv(U.uMaskRect2, p.maskRect2); gl.uniform1i(U.uMask2, 1);
       gl.uniform1f(U.uPat, p.pat); gl.uniform1f(U.uPeriod, p.period); gl.uniform1f(U.uSize, p.size);
       canvas.style.opacity = p.alpha;              // 不透明度：猫を描き終えてから、1枚の絵として透けさせる
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texs[0]);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texs[1]);
       gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
     }
     return { resize, draw, setMaskImage, tris: idx.length / 3, verts: pos.length / 3 };
@@ -579,6 +600,8 @@
       lightAmt: c.light / 100, shadow: c.shadow / 100, soft: c.soft / 100 * 12,
       depth: (c.dist - big.dist) * c.zpx,                     // 「ビッグ」の板までの距離(px)
       maskRect: [big.pos.left, big.pos.top, big.geo.w, big.geo.h],
+      depth2: (c.dist - L.starDS.dist) * c.zpx,               // 星の板までの距離(px)
+      maskRect2: [L.starDS.pos.left, L.starDS.pos.top, L.starDS.geo.w, L.starDS.geo.h],
     });
   }
 
