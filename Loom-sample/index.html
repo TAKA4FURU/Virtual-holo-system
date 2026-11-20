@@ -64,6 +64,12 @@
   #start button { font-size: 18px; padding: 16px 28px; border-radius: 999px; border: none; color: #111; font-weight: 700;
     background: linear-gradient(110deg, #ff7ab8, #ffe27a, #7affc4, #7ad0ff, #c47aff); }
   #start p { margin-top: 14px; font-size: 13px; opacity: .7; line-height: 1.7; }
+  /* スライダーを触っている間は、そのスライダー1本だけ残して画面が見えるようにする */
+  #panel.dragging { background: transparent !important; border-color: transparent !important; box-shadow: none !important;
+    -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  #panel.dragging * { visibility: hidden; }
+  #panel.dragging .sl.active, #panel.dragging .sl.active * { visibility: visible; }
+  #panel.dragging .sl.active { background: rgba(0, 0, 0, .6); border-radius: 10px; }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -758,7 +764,14 @@
       if (['fsize', 'ty', 'bold', 'edge'].includes(f)) { clearTimeout(textTimer); textTimer = setTimeout(buildText, 60); }
       if (f === 'dist') { applyOrder(); if (!v) c.el.style.transform = ''; }
     };
-    p.querySelectorAll('input[type=range]').forEach(el => el.addEventListener('input', () => setValue(el.dataset.k, el.dataset.f, +el.value, el)));
+    p.querySelectorAll('input[type=range]').forEach(el => {
+      el.addEventListener('input', () => setValue(el.dataset.k, el.dataset.f, +el.value, el));
+      // 触り始めたらパネルを透明に（そのスライダーだけ残す）、指を離したら元に戻す
+      el.addEventListener('pointerdown', () => { el.closest('.sl').classList.add('active'); p.classList.add('dragging'); });
+    });
+    const endDrag = () => { if (!p.classList.contains('dragging')) return;
+      p.classList.remove('dragging'); p.querySelectorAll('.sl.active').forEach(x => x.classList.remove('active')); };
+    for (const ev of ['pointerup', 'pointercancel', 'touchend', 'touchcancel']) window.addEventListener(ev, endDrag);
     p.querySelectorAll('input.num').forEach(el => {
       el.addEventListener('change', () => { setValue(el.dataset.k, el.dataset.f, parseFloat(el.value)); el.value = L[el.dataset.k][el.dataset.f]; });
       el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
