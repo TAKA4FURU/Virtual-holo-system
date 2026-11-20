@@ -64,7 +64,12 @@
   #start button { font-size: 18px; padding: 16px 28px; border-radius: 999px; border: none; color: #111; font-weight: 700;
     background: linear-gradient(110deg, #ff7ab8, #ffe27a, #7affc4, #7ad0ff, #c47aff); }
   #start p { margin-top: 14px; font-size: 13px; opacity: .7; line-height: 1.7; }
+  .shadowIn { position: absolute; background: #000;
+    -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@900&family=Zen+Maru+Gothic:wght@900&family=Mochiy+Pop+One&family=Hachi+Maru+Pop&family=Kiwi+Maru:wght@500&text=%E3%81%BF%E3%81%A3%E3%81%91%E3%81%AD%E3%81%93&display=swap">
 </head>
 <body>
 
@@ -110,6 +115,13 @@
   // offset: 色の開始位置(0〜360)  size: 1〜100（1＝縦画面の高さで虹1周）
   // dist: カメラからの距離 0（近い）〜30（遠い）。近いものほど手前に重なる
   const L = {
+    // 00 TEXT「みっけねこ」：文字の形はページを開いたときに選んだ書体で描く。影（00 TEXT_DS）は猫の上にだけ落ちる
+    textDS:  { file: '04_CHARA_BG', mask: '00_TEXT_DS', name: '00 TEXT_DS（猫に落ちる影）', kind: 'shadow', link: 'charaB',
+               visible: true, opacity: 60, sblur: 30, sx: 40, sy: 230 },
+    textBG:  { file: '00_TEXT_BG',  name: '00 TEXT_BG（縁取り）', kind: 'base', link: 'text', visible: true, gray: 0, opacity: 100 },
+    text:    { file: '00_TEXT',     name: '00 TEXT「みっけねこ」', kind: 'holo', pats: ['v', 'h', 'radial'], isText: true,
+               visible: true, axis: 'xy', pattern: 'h', offset: 300, size: 2, opacity: 100, dist: 0,
+               font: 'mplus', fsize: 230, ty: 1400, bold: 6, edge: 22 },
     dust:    { file: '07_DUST',     name: '07 DUST',     kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
                visible: true, axis: 'xy', pattern: 'h',      offset: 0,   size: 2, opacity: 100, blur: 50, dist: 30 },
     gokou:   { file: '06_GOKOU',    name: '06 GOKOU',    kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
@@ -134,13 +146,23 @@
     bigB:    { file: '01_BIG_B',    name: '01 BIG_B',    kind: 'holo', pats: ['v', 'h'],
                visible: true, axis: 'xy', pattern: 'h', offset: 0,   size: 2, opacity: 100, dist: 0 },
   };
-  const ORDER = ['dust', 'gokou', 'foods', 'charaBG', 'charaR', 'charaC', 'charaG', 'charaB', 'starDS', 'star', 'bigBG', 'bigG', 'bigB'];
+  const ORDER = ['dust', 'gokou', 'foods', 'charaBG', 'charaR', 'charaC', 'charaG', 'charaB', 'textDS', 'starDS', 'star', 'bigBG', 'bigG', 'bigB', 'textBG', 'text'];
+  // 書体の候補（太い丸ゴシック中心）。Googleフォントは「みっけねこ」の5文字分だけ読み込む
+  const FONTS = [
+    ['mplus',   'M PLUS Rounded 1c（極太）', 900, '"M PLUS Rounded 1c"'],
+    ['zenmaru', 'Zen Maru Gothic（極太）',   900, '"Zen Maru Gothic"'],
+    ['mochiy',  'Mochiy Pop One（ポップ）',   400, '"Mochiy Pop One"'],
+    ['hachi',   'Hachi Maru Pop（手書き風）', 400, '"Hachi Maru Pop"'],
+    ['kiwi',    'Kiwi Maru（やわらか）',      500, '"Kiwi Maru"'],
+    ['hira',    'ヒラギノ丸ゴ（iPhone内蔵）', 400, '"Hiragino Maru Gothic ProN"'],
+  ];
+  const TEXT = 'みっけねこ';
   const PATTERN_NAMES = { v: '縦', h: '横', radial: 'ラジアル' };
 
-  const zOf = k => L[k].dist;
+  const zOf = k => L[k].link ? L[L[k].link].dist : L[k].dist;   // link：ほかの層と同じ距離で動く
   // 重なり順：カメラに近いものほど上。同じ距離ならファイル番号の小さいものが上
   function applyOrder() {
-    const sorted = [...ORDER].sort((a, b) => (L[b].dist - L[a].dist) || (ORDER.indexOf(a) - ORDER.indexOf(b)));
+    const sorted = [...ORDER].sort((a, b) => (zOf(b) - zOf(a)) || (ORDER.indexOf(a) - ORDER.indexOf(b)));
     sorted.forEach((k, i) => { L[k].el.style.zIndex = i + 1; });
   }
 
@@ -156,11 +178,16 @@
     if (c.kind === 'holo') {
       el.innerHTML = '<div class="mask"><canvas class="fill"></canvas></div>';
       c.maskEl = el.firstElementChild; c.fill = { c: c.maskEl.firstElementChild, cfg: c };
-      setMask(c.maskEl, ASSETS.img[c.file].src);
+      if (ASSETS.img[c.file]) setMask(c.maskEl, ASSETS.img[c.file].src);
     }
     if (c.kind === 'base') {
       el.innerHTML = '<div class="mask"></div>';
       c.maskEl = el.firstElementChild;
+      if (ASSETS.img[c.file]) setMask(c.maskEl, ASSETS.img[c.file].src);
+    }
+    if (c.kind === 'shadow') {          // 外側＝猫の形で切り抜き、内側＝文字の影
+      el.innerHTML = '<div class="mask"><div class="shadowIn"></div></div>';
+      c.maskEl = el.firstElementChild; c.inner = c.maskEl.firstElementChild;
       setMask(c.maskEl, ASSETS.img[c.file].src);
     }
     if (c.kind === 'line') {
@@ -265,21 +292,78 @@
 
   // ===== 画面サイズが変わったときだけ作り直す =====
   function rebuild() {
-    const W = innerWidth, H = innerHeight;
-    box.k = W / AREA;                          // 表示エリアを横幅に合わせる
-    for (const k of ORDER) {
-      const c = L[k], r = ASSETS.img[c.file];
-      // 切り出した画像を、元の4096の中の位置どおりに置く（4096の中心＝画面の中心）
-      const left = W / 2 + (r.x - SRC / 2) * box.k, top = H / 2 + (r.y - SRC / 2) * box.k;
-      c.geo = { w: r.w * box.k, h: r.h * box.k, cx: W / 2 - left, cy: H / 2 - top };
-      Object.assign(c.el.style, { left: left + 'px', top: top + 'px', width: c.geo.w + 'px', height: c.geo.h + 'px' });
-      if (c.fill) paintFill(c.fill);
-      if (c.kind === 'line') for (const g of c.bands) Object.assign(g.im.style, {
-        left: g.b.x * box.k + 'px', top: g.b.y * box.k + 'px', width: g.b.w * box.k + 'px', height: g.b.h * box.k + 'px' });
-      if (c.far) applyBlur(k);
-    }
+    box.k = innerWidth / AREA;                 // 表示エリアを横幅に合わせる
+    for (const k of ORDER) { placeLayer(k); if (L[k].far) applyBlur(k); }
     applyLooks(); applyOrder();
   }
+  function placeLayer(k) {
+    const W = innerWidth, H = innerHeight;
+    const c = L[k], r = ASSETS.img[c.file];
+    if (!r) return;
+    // 切り出した画像を、元の4096の中の位置どおりに置く（4096の中心＝画面の中心）
+    const left = W / 2 + (r.x - SRC / 2) * box.k, top = H / 2 + (r.y - SRC / 2) * box.k;
+    c.geo = { w: r.w * box.k, h: r.h * box.k, cx: W / 2 - left, cy: H / 2 - top };
+    Object.assign(c.el.style, { left: left + 'px', top: top + 'px', width: c.geo.w + 'px', height: c.geo.h + 'px' });
+    if (c.fill) paintFill(c.fill);
+    if (c.kind === 'shadow' && ASSETS.img[c.mask]) {     // 影は猫の箱の中で、文字の位置＋ずれの所に置く
+      const m = ASSETS.img[c.mask];
+      Object.assign(c.inner.style, { left: (m.x + c.sx - r.x) * box.k + 'px', top: (m.y + c.sy - r.y) * box.k + 'px',
+        width: m.w * box.k + 'px', height: m.h * box.k + 'px' });
+    }
+    if (c.kind === 'line') for (const g of c.bands) Object.assign(g.im.style, {
+      left: g.b.x * box.k + 'px', top: g.b.y * box.k + 'px', width: g.b.w * box.k + 'px', height: g.b.h * box.k + 'px' });
+  }
+
+  // ===== 文字「みっけねこ」の形を作る（書体・大きさ・位置・太さ・縁取りが変わったときだけ）=====
+  const fontOf = c => FONTS.find(f => f[0] === c.font) || FONTS[0];
+  const fontCss = (c, px) => { const f = fontOf(c); return `${f[2]} ${px}px ${f[3]}, "Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif`; };
+  const urls = {};
+  function putImg(key, x, y, w, h, cv) {
+    return new Promise(res => cv.toBlob(b => {
+      if (urls[key]) URL.revokeObjectURL(urls[key]);
+      urls[key] = URL.createObjectURL(b);
+      ASSETS.img[key] = { x, y, w, h, src: urls[key] }; res();
+    }));
+  }
+  let textJob = 0;
+  async function buildText() {
+    const job = ++textJob, c = L.text, d = L.textDS, RES = .5;   // 4096の座標の半分の細かさで描く
+    const fs = c.fsize, pad = c.edge + c.bold + d.sblur * 2 + 20;
+    const mc = document.createElement('canvas').getContext('2d');
+    mc.font = fontCss(c, fs);
+    const m = mc.measureText(TEXT);
+    const asc = m.actualBoundingBoxAscent || fs * .88, desc = m.actualBoundingBoxDescent || fs * .12;
+    const tw = Math.ceil(m.width), th = Math.ceil(asc + desc);
+    const w = tw + pad * 2, h = th + pad * 2;
+    const x = Math.round(SRC / 2 - w / 2), y = Math.round(c.ty - h / 2);
+    const draw = (extra, blur) => {
+      const cv = document.createElement('canvas');
+      cv.width = Math.ceil(w * RES); cv.height = Math.ceil(h * RES);
+      const g = cv.getContext('2d'), OFF = blur ? cv.width * 2 : 0;
+      g.scale(RES, RES); g.font = fontCss(c, fs); g.textBaseline = 'alphabetic';
+      g.fillStyle = g.strokeStyle = '#fff'; g.lineJoin = 'round'; g.lineCap = 'round';
+      if (blur) { g.shadowColor = '#fff'; g.shadowBlur = blur * RES; g.shadowOffsetX = OFF; }
+      const ox = pad - OFF / RES, oy = pad + asc;
+      g.fillText(TEXT, ox, oy);
+      const sw = (c.bold + extra) * 2;
+      if (sw > 0) { g.lineWidth = sw; g.strokeText(TEXT, ox, oy); }
+      return cv;
+    };
+    const tasks = [putImg('00_TEXT', x, y, w, h, draw(0)), putImg('00_TEXT_BG', x, y, w, h, draw(c.edge))];
+    tasks.push(putImg('00_TEXT_DS', x, y, w, h, draw(c.edge, d.sblur)));
+    await Promise.all(tasks);
+    if (job !== textJob) return;
+    for (const k of ['text', 'textBG']) setMask(L[k].maskEl, ASSETS.img[L[k].file].src);
+    L.textDS.inner.style.webkitMaskImage = L.textDS.inner.style.maskImage = `url("${ASSETS.img['00_TEXT_DS'].src}")`;
+    for (const k of ['text', 'textBG', 'textDS']) placeLayer(k);
+  }
+  // 書体を読み込んでから描き直す（読み込めないときは端末の丸ゴシックで描く）
+  async function loadFontAndBuild() {
+    const f = fontOf(L.text);
+    try { await Promise.race([document.fonts.load(`${f[2]} 100px ${f[3]}`, TEXT), new Promise(r => setTimeout(r, 4000))]); } catch (e) {}
+    buildText();
+  }
+
   // 見た目の設定（表示・不透明度・色）を反映
   function applyLooks() {
     for (const k of ORDER) {
@@ -372,7 +456,8 @@
 
   // ===== 設定パネル =====
   // スライダーの右に数値入力欄。どちらを変えても同じ値になる
-  const LIMITS = { offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 30, .01] };
+  const LIMITS = { fsize: [100, 400, 5], ty: [700, 3400, 10], bold: [0, 20, 1], edge: [0, 50, 1],
+    sblur: [0, 80, 1], sx: [-300, 300, 5], sy: [-300, 400, 5], offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 30, .01] };
   function slider(k, f, label, unit = '') {
     const [min, max, step] = LIMITS[f];
     return `<label class="sl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${L[k][f]}" data-k="${k}" data-f="${f}">` +
@@ -387,23 +472,28 @@
         `<option value="${v}"${c.axis === v ? ' selected' : ''}>${n}</option>`).join('')}</select>`;
       if (c.pats) h += `<select data-k="${k}" data-f="pattern">${c.pats.map(v =>
         `<option value="${v}"${c.pattern === v ? ' selected' : ''}>${PATTERN_NAMES[v]}</option>`).join('')}</select>`;
+      if (c.isText) h += `<select data-k="${k}" data-f="font">${FONTS.map(([v, n]) =>
+        `<option value="${v}"${c.font === v ? ' selected' : ''}>${n}</option>`).join('')}</select>`;
       h += `</div>`;
+      if (c.isText) { h += slider(k, 'fsize', '文字の大きさ'); h += slider(k, 'ty', '上下の位置'); h += slider(k, 'bold', '太さを足す'); h += slider(k, 'edge', '縁取りの太さ'); }
+      if (c.kind === 'shadow') { h += slider(k, 'sblur', '影のぼかし'); h += slider(k, 'sx', '影のずれ（横）'); h += slider(k, 'sy', '影のずれ（縦）'); }
       if (c.kind === 'line') h += slider(k, 'offset', '光の開始位置');
       if (c.kind === 'holo') { h += slider(k, 'offset', '開始位置'); h += slider(k, 'size', 'サイズ'); }
       if (c.kind === 'base') h += slider(k, 'gray', '色（黒〜50%灰）', '%');
       if (c.opacity != null) h += slider(k, 'opacity', '不透明度', '%');
       if (c.far) h += slider(k, 'blur', 'ぼかし', '%');
-      h += slider(k, 'dist', 'カメラからの距離');
+      if (!c.link) h += slider(k, 'dist', 'カメラからの距離');
       rows.push(h + '</div>');
     }
     const p = $('panel'); p.innerHTML = rows.join('');
     p.querySelectorAll('select').forEach(el => el.addEventListener('change', () => {
-      const c = L[el.dataset.k]; c[el.dataset.f] = el.value; if (c.fill) paintFill(c.fill);
+      const c = L[el.dataset.k]; c[el.dataset.f] = el.value;
+      if (el.dataset.f === 'font') loadFontAndBuild(); else if (c.fill) paintFill(c.fill);
     }));
     p.querySelectorAll('input[type=checkbox]').forEach(el => el.addEventListener('change', () => {
       L[el.dataset.k].visible = el.checked; applyLooks();
     }));
-    let repaint = null;
+    let repaint = null, textTimer = null;
     const setValue = (k, f, v, from) => {
       const [min, max] = LIMITS[f], c = L[k];
       v = clamp(isNaN(v) ? c[f] : v, min, max);
@@ -414,8 +504,10 @@
         repaint = c.fill;
       }
       if (f === 'blur') applyBlur(k);
+      if (['fsize', 'ty', 'bold', 'edge', 'sblur'].includes(f)) { clearTimeout(textTimer); textTimer = setTimeout(buildText, 60); }
+      if (f === 'sx' || f === 'sy') placeLayer('textDS');
       if (f === 'opacity' || f === 'gray') applyLooks();
-      if (f === 'dist') { applyOrder(); if (!v) c.el.style.transform = ''; }
+      if (f === 'dist') { applyOrder(); if (!v) for (const q of ORDER) if (q === k || L[q].link === k) L[q].el.style.transform = ''; }
     };
     p.querySelectorAll('input[type=range]').forEach(el => el.addEventListener('input', () => setValue(el.dataset.k, el.dataset.f, +el.value, el)));
     p.querySelectorAll('input.num').forEach(el => {
@@ -460,6 +552,8 @@
   let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(rebuild, 150); });
   buildPanel();
   rebuild();
+  buildText();            // まず端末の書体で描き、書体が届いたら描き直す
+  loadFontAndBuild();
   requestAnimationFrame(tick);
 })();
 </script>
