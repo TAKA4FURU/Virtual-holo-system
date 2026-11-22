@@ -72,12 +72,16 @@
   body.noui #camBox { display: none !important; }
   #panel .ft { padding: 6px 0 10px; border-bottom: 1px solid rgba(255,255,255,.15); margin-bottom: 6px; }
   #panel .ft .chk { display: inline-flex; gap: 6px; align-items: center; margin: 4px 14px 4px 24px; }
+  /* 額縁：画面に固定（どの操作でも動かない）。表面の凹凸だけが角度で光り方を変える */
+  #frame { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+  #status { z-index: 3; }
 </style>
 </head>
 <body>
 
 <div id="status">傾きセンサー：未開始</div>
 <div id="card"></div>
+<canvas id="frame"></canvas>
 <div id="panel"></div>
 
 <div id="ui">
@@ -508,6 +512,7 @@
   function rebuild() {
     const W = innerWidth, H = innerHeight;
     box.k = W / AREA;                          // 表示エリアを横幅に合わせる
+    if (frame) frame.resize();
     for (const k of ORDER) {
       const c = L[k], r = ASSETS.img[c.file];
       // 切り出した画像を、元の4096の中の位置どおりに置く（4096の中心＝画面の中心）
@@ -558,6 +563,79 @@
     lastVal = v; lastEvtT = now;
     if (!gyroActive) { gyroActive = true; if (mode === 'gyro') status.textContent = '傾きセンサー：動作中'; }
   }
+  // ===== 額縁（コードで作る彫りの額縁。ホロの虹色。画面に固定し、光の当たり方だけ角度で変わる）=====
+  const FR = { on: true, width: 95, relief: 100, offset: 0, size: 2, shadowOn: true, shadowAmt: 60, shadowLen: 60, shadowSoft: 40 };
+  const frame = (() => {
+    const cv = $('frame'), gl = cv.getContext('webgl', { premultipliedAlpha: false, alpha: true, antialias: false });
+    if (!gl) return null;
+    const vs = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }';
+    const fs = `precision highp float;
+      uniform vec2 uRes; uniform float uFw, uRelief, uHue, uSize, uShOn, uShAmt, uShLen, uShSoft; uniform vec3 uL; uniform vec2 uTilt;
+      // 画面の縁からの距離で額縁の断面を作る（四隅は自然に45°で合わさる）
+      float prof(vec2 p, out float t, out float s) {
+        vec2 q = min(p, uRes - p); float d = min(q.x, q.y); t = d / uFw;
+        s = (q.x < q.y) ? p.y : p.x;
+        if (t > 1.) return 0.;
+        float h = .55 * pow(sin(3.14159 * clamp(t * .92 + .04, 0., 1.)), .7);       // 全体のふくらみ
+        h += .30 * exp(-pow((t - .86) / .06, 2.));                                     // 内側の玉縁
+        h += .22 * exp(-pow((t - .10) / .05, 2.));                                     // 外側の縁
+        h -= .18 * exp(-pow((t - .28) / .05, 2.));                                     // 溝
+        float band = exp(-pow((t - .56) / .13, 2.));                                   // 彫り模様の帯
+        float ph = s / uFw * 1.9;
+        h += band * (.16 * (.5 + .5 * sin(ph * 3.14159)) + .07 * sin(ph * 6.2832 + t * 9.));   // 葉っぱのような連続模様
+        h += .05 * exp(-pow((t - .72) / .03, 2.)) * (.5 + .5 * sin(s / uFw * 14.));             // 小さな粒
+        return h;
+      }
+      vec3 rainbow(float h) { return clamp(abs(mod(h * 6. + vec3(0., 4., 2.), 6.) - 3.) - 1., 0., 1.); }
+      void main() {
+        vec2 p = gl_FragCoord.xy; float t, s;
+        float h0 = prof(p, t, s);
+        if (t > 1.) {                              // 内側：額縁の影
+          if (uShOn < .5) discard;
+          vec2 off = -uL.xy / max(uL.z, .2) * uShLen * uFw;      // 光と反対へ影が伸びる
+          vec2 q = min(p - off, uRes - (p - off)); float d = min(q.x, q.y);
+          float a = 1. - smoothstep(uFw - uShSoft * uFw, uFw + uShSoft * uFw + 1., d);
+          if (a <= 0.) discard;
+          gl_FragColor = vec4(0., 0., 0., a * uShAmt); return;
+        }
+        float e = 1.5, t2, s2;
+        float hx = prof(p + vec2(e, 0.), t2, s2) - prof(p - vec2(e, 0.), t2, s2);
+        float hy = prof(p + vec2(0., e), t2, s2) - prof(p - vec2(0., e), t2, s2);
+        float amp = uFw * .35 * uRelief;
+        vec3 n = normalize(vec3(-hx / (2. * e) * amp, -hy / (2. * e) * amp, 1.));
+        vec3 L = normalize(uL), V = normalize(vec3(uTilt * .5, 1.));
+        float dif = max(dot(n, L), 0.);
+        float spec = pow(max(dot(reflect(-L, n), V), 0.), 36.);
+        // ホロ：面の向きと見る角度で虹がずれる（凹凸ごとに色が変わる）
+        float hue = uHue + (n.x * .8 + n.y * .5) * .12 * uSize + dot(uTilt, vec2(.25, .2)) + s / (uRes.y * uSize) ;
+        vec3 col = mix(vec3(.75), rainbow(fract(hue)), .85) * (.30 + .85 * dif) + vec3(1.) * spec * .9;
+        col *= 1. - .55 * (1. - smoothstep(0., .035, t)) - .45 * smoothstep(.975, 1., t);   // 外周と内周に細い暗い線
+        gl_FragColor = vec4(col, 1.);
+      }`;
+    const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o);
+      if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+    const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr);
+    gl.useProgram(pr);
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const U = {}; for (const n of ['uRes', 'uFw', 'uRelief', 'uHue', 'uSize', 'uShOn', 'uShAmt', 'uShLen', 'uShSoft', 'uL', 'uTilt']) U[n] = gl.getUniformLocation(pr, n);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    let dpr = 1;
+    function resize() { dpr = Math.min(devicePixelRatio || 1, 3); cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr); gl.viewport(0, 0, cv.width, cv.height); }
+    function draw(x, y, light) {
+      cv.style.display = FR.on ? '' : 'none'; if (!FR.on) return;
+      gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(U.uRes, cv.width, cv.height); gl.uniform1f(U.uFw, FR.width * box.k * dpr);
+      gl.uniform1f(U.uRelief, FR.relief / 100); gl.uniform1f(U.uHue, FR.offset / 360); gl.uniform1f(U.uSize, FR.size);
+      gl.uniform1f(U.uShOn, FR.shadowOn ? 1 : 0); gl.uniform1f(U.uShAmt, FR.shadowAmt / 100);
+      gl.uniform1f(U.uShLen, FR.shadowLen / 100); gl.uniform1f(U.uShSoft, FR.shadowSoft / 100);
+      gl.uniform3f(U.uL, light[0], -light[1], 1);          // 画面の座標は上が＋なので上下を反転
+      gl.uniform2f(U.uTilt, -x, y);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    return { resize, draw };
+  })();
+
   // ===== フェーストラック：インカメラで目の位置を追いかけ、「窓から覗く」ように絵をずらす =====
   // 顔を見つけるのは Google の MediaPipe（ページを開いたときにネットから読み込む。映像はiPhoneの中だけで処理）
   const MP_VER = '0.10.14';
@@ -728,6 +806,7 @@
       if (c.fill) moveFill(c.fill, clamp(x, -1.5, 1.5), clamp(y, -1.5, 1.5));
       if (c.glint) updateGlint(c, sp.x, sp.y);
     }
+    if (frame) { const C = L.cat3d; frame.draw(x, y, [C.lightX / 100 - x * .5, C.lightY / 100 - y * .5]); }   // ライトは3D猫と同じ
     requestAnimationFrame(tick);
   }
 
@@ -775,11 +854,21 @@
         `<option value="${v}"${FT.pivot === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="chk"><input type="checkbox" id="ftFlipX"${FT.flipX ? ' checked' : ''}>左右を反転</label>
       <label class="chk"><input type="checkbox" id="ftFlipY"${FT.flipY ? ' checked' : ''}>上下を反転</label>
-      <label class="chk"><input type="checkbox" id="ftCam"${FT.showCam ? ' checked' : ''}>カメラの小窓を表示</label></div>`);
+      <label class="chk"><input type="checkbox" id="ftCam"${FT.showCam ? ' checked' : ''}>カメラの小窓を表示</label></div>`,
+      `<div class="ft"><div class="head"><label class="chk" style="margin-left:0"><input type="checkbox" id="frOn"${FR.on ? ' checked' : ''}><b>額縁（画面に固定）</b></label></div>
+      ${[['width', '太さ', 20, 300, 1], ['relief', '凹凸の強さ', 0, 300, 5], ['offset', '開始位置', 0, 360, 5], ['size', 'サイズ', 1, 10, .5]].map(([f, n, a, b, st]) =>
+        `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}
+      <label class="chk"><input type="checkbox" id="frSh"${FR.shadowOn ? ' checked' : ''}>内側に影を落とす</label>
+      ${[['shadowAmt', '影の濃さ', 0, 100, 1], ['shadowLen', '影の長さ', 0, 300, 5], ['shadowSoft', '影のぼかし', 0, 150, 5]].map(([f, n, a, b, st]) =>
+        `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}</div>`);
     const p = $('panel'); p.innerHTML = rows.join('');
     const ftNum = (a, b, f) => { const set = v => { FT[f] = +v; $(a).value = v; $(b).value = v; };
       $(a).addEventListener('input', e => set(e.target.value)); $(b).addEventListener('change', e => set(e.target.value)); };
     ftNum('ftSens', 'ftSensN', 'sens'); ftNum('ftZoom', 'ftZoomN', 'zoom');
+    p.querySelectorAll('[data-fr]').forEach(el => el.addEventListener(el.type === 'range' ? 'input' : 'change', () => {
+      const f = el.dataset.fr; FR[f] = +el.value; p.querySelectorAll(`[data-fr="${f}"]`).forEach(o => { if (o !== el) o.value = el.value; }); }));
+    $('frOn').addEventListener('change', e => FR.on = e.target.checked);
+    $('frSh').addEventListener('change', e => FR.shadowOn = e.target.checked);
     $('ftPivot').addEventListener('change', e => FT.pivot = e.target.value);
     $('ftFlipX').addEventListener('change', e => FT.flipX = e.target.checked);
     $('ftFlipY').addEventListener('change', e => FT.flipY = e.target.checked);
