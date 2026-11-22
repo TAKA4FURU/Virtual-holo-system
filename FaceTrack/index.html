@@ -85,7 +85,7 @@
 <div id="panel"></div>
 
 <div id="ui">
-  <label>強さ <input type="range" id="power" min="0" max="10" step="1" value="5"> <input type="number" id="powerNum" class="pnum" min="0" max="10" step="1" value="5"></label>
+  <label>強さ <input type="range" id="power" min="0" max="10" step="1" value="3"> <input type="number" id="powerNum" class="pnum" min="0" max="10" step="1" value="3"></label>
   <button id="bgBtn">背景：濃いグレー</button>
   <button id="modeBtn">操作：顔</button>
   <button id="recenter">水平リセット</button>
@@ -125,13 +125,13 @@
   // dist: カメラからの距離 0（近い）〜100（遠い）。近いものほど手前に重なる
   const L = {
     dust:    { file: '07_DUST',     name: '07 DUST',     kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
-               visible: true, axis: 'xy', pattern: 'h',      offset: 0,   size: 2, opacity: 100, blur: 50, dist: 30 },
+               visible: true, axis: 'xy', pattern: 'h',      offset: 0,   size: 2, opacity: 90, blur: 40, dist: 100 },
     gokou:   { file: '06_GOKOU',    name: '06 GOKOU',    kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
-               visible: true, axis: 'xy', pattern: 'radial', offset: 120, size: 1, opacity: 55, blur: 20, dist: 20 },
+               visible: true, axis: 'xy', pattern: 'radial', offset: 120, size: 1, opacity: 50, blur: 30, dist: 80 },
     foods:   { file: '05_FOODS',    name: '05 FOODS',    kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
-               visible: true, axis: 'xy', pattern: 'h',      offset: 240, size: 2, opacity: 80, blur: 10, dist: 15 },
+               visible: true, axis: 'xy', pattern: 'h',      offset: 240, size: 2, opacity: 80, blur: 10, dist: 60 },
     // 3Dの猫（2Dの猫 CHARA_R/G/B/C・CHARA_BG の代わり。置く位置は CHARA_BG と同じ）
-    cat3d:   { file: '04_CHARA_BG', name: '3D CAT（仮モデル）', kind: '3d', dist: 10, visible: true,
+    cat3d:   { file: '04_CHARA_BG', name: '3D CAT（仮モデル）', kind: '3d', dist: 40, visible: true,
                axis: 'xy', pats: ['v', 'h', 'light'], pattern: 'h', offset: 0, size: 3, holo: 70, grain: 0, blur: 5, alpha: 90,
                look: 100, zpx: 30, light: 100, lightX: 0, lightY: -30, shadow: 70, soft: 30, scale: 130, posY: 0 },
     starDS:  { file: '03_STAR_DS',  name: '03 STAR_DS',  kind: 'base', dist: 3.02, visible: true, gray: 0, opacity: 100 },
@@ -156,7 +156,7 @@
     grpBig:  { kind: 'group', name: '01 BIG（G・B・縁）', holoKeys: ['bigG', 'bigB'], baseKey: 'bigBG', parts: { bigG: 'G', bigB: 'B' },
                pats: ['v', 'h'], visible: true, axis: 'xy', pattern: 'h', size: 2, opacity: 100, dist: 0 },
     grpStar: { kind: 'group', name: '02 STAR（星・影）', holoKeys: ['star'], baseKey: 'starDS', parts: { star: '' },
-               pats: ['v', 'h'], visible: true, axis: 'xy', pattern: 'h', size: 2, opacity: 100, dist: 3 },
+               pats: ['v', 'h'], visible: true, axis: 'xy', pattern: 'h', size: 2, opacity: 100, dist: 15 },
   };
   const groupOf = k => Object.keys(GROUPS).find(g => GROUPS[g].holoKeys.includes(k) || GROUPS[g].baseKey === k);
   // 組の値を中の層に配る
@@ -586,7 +586,7 @@
     if (!gyroActive) { gyroActive = true; if (mode === 'gyro') status.textContent = '傾きセンサー：動作中'; }
   }
   // ===== 額縁（コードで作る彫りの額縁。ホロの虹色。画面に固定し、光の当たり方だけ角度で変わる）=====
-  const FR = { on: true, width: 95, relief: 100, offset: 0, size: 2, shadowOn: true, shadowAmt: 60, shadowLen: 60, shadowSoft: 40 };
+  const FR = { on: true, width: 120, relief: 100, offset: 0, size: 2, shadowOn: true, shadowAmt: 60, shadowLen: 60, shadowSoft: 40 };
   const frame = (() => {
     const cv = $('frame'), gl = cv.getContext('webgl', { premultipliedAlpha: false, alpha: true, antialias: false });
     if (!gl) return null;
@@ -963,7 +963,7 @@
     lastTap = { t: now, x: e.clientX, y: e.clientY };
   });
   function setPower(v) {
-    v = Math.round(clamp(isNaN(v) ? 5 : v, 0, 10));
+    v = Math.round(clamp(isNaN(v) ? 3 : v, 0, 10));
     powerEl.value = v; $('powerNum').value = v; power = v / 10 * POWER_MAX;
   }
   powerEl.addEventListener('input', () => setPower(+powerEl.value));
