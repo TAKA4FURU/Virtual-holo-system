@@ -563,7 +563,7 @@
   const MP_VER = '0.10.14';
   const MP_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
   const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
-  const FT = { sens: 100, zoom: 100, flipX: false, flipY: false, showCam: true };   // 設定（ホロ設定の一番上）
+  const FT = { sens: 100, zoom: 100, flipX: false, flipY: false, showCam: true, pivot: 'screen' };   // 設定（ホロ設定の一番上）
   let mode = 'face';                       // 'face'＝顔で動かす、'gyro'＝ジャイロ（マウス）で動かす
   let faceDet = null, faceOn = false, faceNeutral = null, faceRaw = null, faceLost = 0, lastVideoT = -1;
   let zoomR = 1, zoomTarget = 1;           // 近づく・離れる（1＝基準の距離、2＝半分の距離まで近づいた）
@@ -615,6 +615,9 @@
     zoomTarget = clamp(es / faceNeutral.s, .4, 3);        // 目と目の間が広い＝近い
   }
   // 近づく・離れる：本物の窓と同じく、近づくほど奥の物が小さく（見える範囲が広く）なる
+  // 止まって見える位置（動きの中心）：画面＝距離0、3D猫＝猫の距離、GOKOU＝背景の距離。ここより手前は逆向きに動く
+  const PIVOTS = [['screen', '画面（ガラス面）'], ['cat', '3D猫'], ['gokou', 'GOKOU（背景）']];
+  const pivotDist = () => FT.pivot === 'cat' ? zOf('cat3d') : FT.pivot === 'gokou' ? zOf('gokou') : 0;
   function zoomOf(dist) {
     if (mode !== 'face' || !FT.zoom) return 1;
     const E = 1 / zoomR, D = dist * .05 * FT.zoom / 100;   // E＝目から画面までの距離（基準1）、D＝画面から奥までの距離
@@ -677,13 +680,13 @@
     // ライトは現実の空間（スマホの外）に固定。スマホを傾けると、当たる向きが変わる
     // lightX：マイナス＝左から、lightY：プラス＝下から（スマホを持つ手元のほうから光が来るイメージ）
     const lx = c.lightX / 100 - x * .5, ly = c.lightY / 100 - y * .5;
-    const zs = zoomOf(c.dist), CX = innerWidth / 2, CY = innerHeight / 2;
-    const zr = (r, d) => { const s = zoomOf(d); return [CX + (r[0] - CX) * s, CY + (r[1] - CY) * s, r[2] * s, r[3] * s]; };
+    const P = pivotDist(), zs = zoomOf(c.dist) / zoomOf(P), CX = innerWidth / 2, CY = innerHeight / 2;
+    const zr = (r, d) => { const s = zoomOf(d) / zoomOf(P); return [CX + (r[0] - CX) * s, CY + (r[1] - CY) * s, r[2] * s, r[3] * s]; };
     c.cat.draw({
       cx: CX + (c.pos.left + c.geo.w / 2 - CX) * zs, cy: CY + (c.pos.top + c.geo.h / 2 + c.geo.h * c.posY / 100 - CY) * zs,
       height: c.geo.h * c.scale / 100 * zs,
       shift: [-x * PX_PER_UNIT * zs, -y * PX_PER_UNIT * zs],          // 距離1あたりのずれ（平面の層と同じ）
-      dist: c.dist, zpx: c.zpx, look: c.look / 100,          // 猫の各点の奥行き＝距離＋立体の厚み
+      dist: c.dist - P, zpx: c.zpx, look: c.look / 100,   // ずれは「止まって見える位置」からの距離で決まる          // 猫の各点の奥行き＝距離＋立体の厚み
       light: [lx, ly, 1],
       // ライト連動の色はライトの向きで決まる（傾きで動くのはライト）。縦・横は傾きで虹が流れる
       hue: c.pattern === 'light' ? c.offset : c.offset + 360 * v / c.size, pat: c.pattern === 'v' ? 0 : c.pattern === 'h' ? 1 : 2,
@@ -714,13 +717,14 @@
       sp.vx += (SPRING_K * (tx - sp.x) - DAMP_C * sp.vx) * h; sp.x += sp.vx * h;
       sp.vy += (SPRING_K * (ty - sp.y) - DAMP_C * sp.vy) * h; sp.y += sp.vy * h;
     }
-    const x = sp.x * power, y = sp.y * power;
+    const x = sp.x * power, y = sp.y * power, P = pivotDist();
     for (const k of ORDER) {
       const c = L[k]; if (!c.visible) continue;
       const z = zOf(k);
       if (c.kind === '3d') { if (c.cat) drawCat(c, x, y); continue; }
-      if (z) { const zs = zoomOf(z);
-        c.el.style.transform = `translate3d(${(-x * z * PX_PER_UNIT * zs).toFixed(2)}px,${(-y * z * PX_PER_UNIT * zs).toFixed(2)}px,0)` + (zs !== 1 ? ` scale(${zs.toFixed(4)})` : ''); }
+      { const rel = z - P, zs = zoomOf(z) / zoomOf(P);
+        const tf = rel || zs !== 1 ? `translate3d(${(-x * rel * PX_PER_UNIT * zs).toFixed(2)}px,${(-y * rel * PX_PER_UNIT * zs).toFixed(2)}px,0)` + (zs !== 1 ? ` scale(${zs.toFixed(4)})` : '') : '';
+        if (c.lastTf !== tf) { c.el.style.transform = tf; c.lastTf = tf; } }
       if (c.fill) moveFill(c.fill, clamp(x, -1.5, 1.5), clamp(y, -1.5, 1.5));
       if (c.glint) updateGlint(c, sp.x, sp.y);
     }
@@ -767,6 +771,8 @@
     rows.unshift(`<div class="ft"><div class="head"><b>フェーストラック</b></div>
       <label class="sl"><span>顔の感度</span><input type="range" id="ftSens" min="20" max="300" step="5" value="${FT.sens}"><input type="number" class="num" id="ftSensN" value="${FT.sens}"></label>
       <label class="sl"><span>近づく・離れるの強さ</span><input type="range" id="ftZoom" min="0" max="300" step="5" value="${FT.zoom}"><input type="number" class="num" id="ftZoomN" value="${FT.zoom}"></label>
+      <label class="sl"><span>止まって見える位置</span><select id="ftPivot">${PIVOTS.map(([v, n]) =>
+        `<option value="${v}"${FT.pivot === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="chk"><input type="checkbox" id="ftFlipX"${FT.flipX ? ' checked' : ''}>左右を反転</label>
       <label class="chk"><input type="checkbox" id="ftFlipY"${FT.flipY ? ' checked' : ''}>上下を反転</label>
       <label class="chk"><input type="checkbox" id="ftCam"${FT.showCam ? ' checked' : ''}>カメラの小窓を表示</label></div>`);
@@ -774,6 +780,7 @@
     const ftNum = (a, b, f) => { const set = v => { FT[f] = +v; $(a).value = v; $(b).value = v; };
       $(a).addEventListener('input', e => set(e.target.value)); $(b).addEventListener('change', e => set(e.target.value)); };
     ftNum('ftSens', 'ftSensN', 'sens'); ftNum('ftZoom', 'ftZoomN', 'zoom');
+    $('ftPivot').addEventListener('change', e => FT.pivot = e.target.value);
     $('ftFlipX').addEventListener('change', e => FT.flipX = e.target.checked);
     $('ftFlipY').addEventListener('change', e => FT.flipY = e.target.checked);
     $('ftCam').addEventListener('change', e => { FT.showCam = e.target.checked; $('camBox').style.display = (mode === 'face' && faceOn && FT.showCam) ? 'block' : 'none'; });
