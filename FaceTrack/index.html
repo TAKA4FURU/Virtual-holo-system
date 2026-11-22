@@ -136,7 +136,7 @@
     // 3Dの猫（2Dの猫 CHARA_R/G/B/C・CHARA_BG の代わり。置く位置は CHARA_BG と同じ）
     cat3d:   { file: '04_CHARA_BG', name: '3D CAT（仮モデル）', kind: '3d', dist: 40, visible: true,
                axis: 'xy', pats: ['v', 'h', 'light'], pattern: 'h', offset: 0, size: 3, holo: 70, grain: 0, blur: 5, alpha: 90,
-               look: 100, zpx: 30, light: 100, lightMode: 'world', lightX: 0, lightY: -30, shadow: 70, soft: 30, scale: 130, posY: 0 },
+               look: 100, zpx: 30, light: 100, lightMode: 'head', lightX: 0, lightY: -30, shadow: 70, soft: 30, scale: 130, posY: 0 },
     starDS:  { file: '03_STAR_DS',  name: '03 STAR_DS',  kind: 'base', dist: 3.02, visible: true, gray: 0, opacity: 100 },
     star:    { file: '02_STAR',     name: '02 STAR',     kind: 'holo', pats: ['v', 'h'],
                visible: true, axis: 'xy', pattern: 'h', offset: 60,  size: 2, opacity: 100, dist: 3 },
@@ -599,7 +599,7 @@
 
   // ===== 額縁（コードで作る彫りの額縁。ホロの虹色。画面に固定し、光の当たり方だけ角度で変わる）=====
   const FR = { on: true, width: 120, relief: 100, offset: 0, size: 2, shadowOn: true, shadowAmt: 60, shadowLen: 60, shadowSoft: 40,
-    lightMode: 'head', lightUp: 35, txtOn: true, txtLight: 'frame', txtAmt: 55, txtLen: 40 };
+    lightMode: 'head', lightUp: 0, txtOn: true, txtLight: 'frame', txtAmt: 55, txtLen: 40 };
   const frame = (() => {
     const cv = $('frame'), gl = cv.getContext('webgl', { premultipliedAlpha: false, alpha: true, antialias: false });
     if (!gl) return null;
@@ -919,9 +919,6 @@
         h += slider(k, 'holo', 'ホロの濃さ', '%'); h += slider(k, 'blur', 'ぼかし', '%'); h += slider(k, 'alpha', '不透明度', '%');
         h += slider(k, 'look', '覗き込みの強さ', '%'); h += slider(k, 'zpx', '奥行きの尺度');
         h += slider(k, 'light', 'ライトの明るさ', '%');
-        h += `<label class="sl"><span>ライトの位置</span><select data-k="${k}" data-f="lightMode">${[['world', '部屋に固定'], ['head', '顔の少し上から']].map(([v, n]) =>
-          `<option value="${v}"${c.lightMode === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>`;
-        h += slider(k, 'lightX', 'ライト左右（−左）'); h += slider(k, 'lightY', 'ライト上下（＋下）');
         h += slider(k, 'shadow', '影の濃さ', '%'); h += slider(k, 'soft', '影のぼかし', '%');
         h += slider(k, 'scale', '大きさ', '%'); h += slider(k, 'posY', '位置（上下）', '%');
       }
