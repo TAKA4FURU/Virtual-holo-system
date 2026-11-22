@@ -615,7 +615,7 @@
     const vs = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }';
     const fs = `precision highp float;
       uniform vec2 uRes; uniform float uFw, uRelief, uHue, uSize, uShOn, uShAmt, uShLen, uShSoft; uniform vec3 uL; uniform vec2 uTilt;
-      uniform sampler2D uTxt; uniform vec4 uTxtRect; uniform vec2 uTxtOff; uniform float uTxtAmt, uTxtBlur;   // 手前の文字が額縁に落とす影
+      uniform sampler2D uTxt, uTxt1, uTxt2; uniform vec4 uTxtRect; uniform vec2 uTxtOff; uniform float uTxtAmt, uTxtBlur;   // 手前の文字が額縁に落とす影
       // 画面の縁からの距離で額縁の断面を作る（四隅は自然に45°で合わさる）
       float prof(vec2 p, out float t, out float s) {
         vec2 q = min(p, uRes - p); float d = min(q.x, q.y); t = d / uFw;
@@ -655,14 +655,15 @@
         float ao = clamp(.78 + h0 * .5, .55, 1.);
         vec3 plaster = vec3(.93, .915, .89);
         vec3 col = plaster * (.28 + .80 * dif) * ao + vec3(1.) * spec * .08;
-        if (uTxtAmt > 0.) {                        // 文字の影：文字の形を光と反対へずらして重ねる（少しぼかす）
-          float a = 0.;
-          for (int i = 0; i < 5; i++) {
-            vec2 o = vec2(i == 1 ? 1. : i == 2 ? -1. : 0., i == 3 ? 1. : i == 4 ? -1. : 0.) * uFw * .06 * uTxtBlur;
-            vec2 uv = (p - uTxtOff + o - uTxtRect.xy) / uTxtRect.zw;
-            if (uv.x > 0. && uv.x < 1. && uv.y > 0. && uv.y < 1.) a += texture2D(uTxt, vec2(uv.x, 1. - uv.y)).a;
+        if (uTxtAmt > 0.) {                        // 文字の影：前もってぼかした3段階の形を、浮き具合で混ぜる（なめらかなぼけ）
+          vec2 uv = (p - uTxtOff - uTxtRect.xy) / uTxtRect.zw;
+          if (uv.x > 0. && uv.x < 1. && uv.y > 0. && uv.y < 1.) {
+            vec2 tc = vec2(uv.x, 1. - uv.y);
+            float a0 = texture2D(uTxt, tc).a, a1 = texture2D(uTxt1, tc).a, a2 = texture2D(uTxt2, tc).a;
+            float b = clamp(uTxtBlur, 0., 2.);
+            float a = b < 1. ? mix(a0, a1, b) : mix(a1, a2, b - 1.);
+            col *= 1. - uTxtAmt * a;
           }
-          col *= 1. - uTxtAmt * a / 5.;
         }
         col *= 1. - .35 * (1. - smoothstep(0., .035, t)) - .30 * smoothstep(.975, 1., t);   // 外周と内周に細い影の線
         gl_FragColor = vec4(col, 1.);
@@ -673,14 +674,24 @@
     gl.useProgram(pr);
     const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const U = {}; for (const n of ['uRes', 'uFw', 'uRelief', 'uHue', 'uSize', 'uShOn', 'uShAmt', 'uShLen', 'uShSoft', 'uL', 'uTilt', 'uTxt', 'uTxtRect', 'uTxtOff', 'uTxtAmt', 'uTxtBlur']) U[n] = gl.getUniformLocation(pr, n);
-    // 文字の形（ビッグとみっけねこの縁取りをまとめた画像）
-    const txTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, txTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
-    { const im = new Image(); im.onload = () => { gl.bindTexture(gl.TEXTURE_2D, txTex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
-        for (const [q, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, q, v); };
+    const U = {}; for (const n of ['uRes', 'uFw', 'uRelief', 'uHue', 'uSize', 'uShOn', 'uShAmt', 'uShLen', 'uShSoft', 'uL', 'uTilt', 'uTxt', 'uTxt1', 'uTxt2', 'uTxtRect', 'uTxtOff', 'uTxtAmt', 'uTxtBlur']) U[n] = gl.getUniformLocation(pr, n);
+    // 文字の形（ビッグとみっけねこの縁取りをまとめた画像）。ぼかしなし・中・大の3枚を作っておく
+    const txTex = [0, 1, 2].map(() => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); return t; });
+    { const im = new Image(); im.onload = () => {
+        const PAD = 120, BL = [0, 14, 42];               // ぼかしの強さ（画像のpx）。影はぼけるとはみ出すので余白を付ける
+        txPad = PAD;
+        BL.forEach((bl, i) => {
+          const cv2 = document.createElement('canvas'); cv2.width = im.width + PAD * 2; cv2.height = im.height + PAD * 2;
+          const g = cv2.getContext('2d');
+          if (bl) { g.shadowColor = '#000'; g.shadowBlur = bl; g.shadowOffsetX = cv2.width * 2; g.drawImage(im, PAD - cv2.width * 2, PAD); }
+          else g.drawImage(im, PAD, PAD);
+          gl.bindTexture(gl.TEXTURE_2D, txTex[i]); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv2);
+          for (const [q, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, q, v);
+        });
+        txImgW = im.width; };
       im.src = ASSETS.img['00_CASTER0'].src; }
+    let txPad = 0, txImgW = 1;
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     let dpr = 1;
     function resize() { dpr = Math.min(devicePixelRatio || 1, 3); cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr); gl.viewport(0, 0, cv.width, cv.height); }
@@ -696,11 +707,13 @@
       // 文字の影：txt.rect＝画面上の文字の位置（CSSのpx、左上基準）、txt.light＝影を作るライト
       const fw = FR.width * box.k * dpr, H = cv.height;
       const r = txt.rect, Lt = txt.light, len = FR.txtLen / 100 * fw * (1 + txt.lift * 1.5);   // 浮くほど影は遠く
-      gl.uniform4f(U.uTxtRect, r[0] * dpr, H - (r[1] + r[3]) * dpr, r[2] * dpr, r[3] * dpr);
+      const pd = txPad / txImgW * r[2];                 // 余白のぶん、文字の箱を広げる（CSSのpx）
+      gl.uniform4f(U.uTxtRect, (r[0] - pd) * dpr, H - (r[1] + r[3] + pd) * dpr, (r[2] + pd * 2) * dpr, (r[3] + pd * 2) * dpr);
       gl.uniform2f(U.uTxtOff, -Lt[0] * len, Lt[1] * len);          // 光と反対へずれる（画面の座標は上が＋）
       gl.uniform1f(U.uTxtAmt, FR.txtOn && txt.front ? FR.txtAmt / 100 / (1 + txt.lift * .8) : 0);   // 浮くほど薄く
-      gl.uniform1f(U.uTxtBlur, 1 + txt.lift * 2);                                                  // 浮くほどぼける
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, txTex); gl.uniform1i(U.uTxt, 0);
+      gl.uniform1f(U.uTxtBlur, .6 + txt.lift * 1.4);                                               // 浮くほどぼける（0＝くっきり、1＝中、2＝大）
+      txTex.forEach((t, i) => { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t); });
+      gl.uniform1i(U.uTxt, 0); gl.uniform1i(U.uTxt1, 1); gl.uniform1i(U.uTxt2, 2);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     return { resize, draw };
@@ -866,7 +879,8 @@
       sp.vy += (SPRING_K * (ty - sp.y) - DAMP_C * sp.vy) * h; sp.y += sp.vy * h;
     }
     const x = sp.x * power, y = sp.y * power, P = pivotDist();
-    updateFront(mode === 'face' ? zoomOf(zOf('bigBG')) / zoomOf(P) : 1.1);   // ジャイロ操作のときは常に手前
+    if (mode === 'face') updateFront(zoomOf(zOf('bigBG')) / zoomOf(P));
+    else { updateFront(1.1); lift = 0; }      // ジャイロ操作のときは常に手前で、浮き出しなし
     for (const k of ORDER) {
       const c = L[k]; if (!c.visible) continue;
       const z = zOf(k);
