@@ -607,8 +607,8 @@
   }
 
   // ===== 額縁（コードで作る彫りの額縁。ホロの虹色。画面に固定し、光の当たり方だけ角度で変わる）=====
-  const FR = { on: true, width: 120, relief: 100, offset: 0, size: 2, shadowOn: true, shadowAmt: 60, shadowLen: 60, shadowSoft: 40,
-    lightMode: 'head', lightUp: 0, txtOn: true, txtLight: 'frame', txtAmt: 55, txtLen: 40, lift: 100 };
+  const FR = { on: true, width: 120, relief: 100, offset: 0, size: 2, shadowOn: false, shadowAmt: 60, shadowLen: 60, shadowSoft: 40,
+    lightMode: 'head', lightUp: 0, txtOn: true, txtLight: 'frame', txtAmt: 90, txtLen: 100, lift: 170 };
   const frame = (() => {
     const cv = $('frame'), gl = cv.getContext('webgl', { premultipliedAlpha: false, alpha: true, antialias: false });
     if (!gl) return null;
@@ -969,9 +969,7 @@
         `<option value="${v}"${FR.txtLight === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
       ${[['txtAmt', '文字の影の濃さ', 0, 100, 1], ['txtLen', '文字の影の距離', 0, 200, 5], ['lift', '近づいたときの浮き出し', 0, 300, 5]].map(([f, n, a, b, st]) =>
         `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}
-      <label class="chk"><input type="checkbox" id="frSh"${FR.shadowOn ? ' checked' : ''}>内側に影を落とす</label>
-      ${[['shadowAmt', '影の濃さ', 0, 100, 1], ['shadowLen', '影の長さ', 0, 300, 5], ['shadowSoft', '影のぼかし', 0, 150, 5]].map(([f, n, a, b, st]) =>
-        `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}</div>`);
+</div>`);
     const p = $('panel'); p.innerHTML = rows.join('');
     const ftNum = (a, b, f) => { const set = v => { FT[f] = +v; $(a).value = v; $(b).value = v; };
       $(a).addEventListener('input', e => set(e.target.value)); $(b).addEventListener('change', e => set(e.target.value)); };
@@ -979,7 +977,6 @@
     p.querySelectorAll('[data-fr]').forEach(el => el.addEventListener(el.type === 'range' ? 'input' : 'change', () => {
       const f = el.dataset.fr; FR[f] = +el.value; p.querySelectorAll(`[data-fr="${f}"]`).forEach(o => { if (o !== el) o.value = el.value; }); }));
     $('frOn').addEventListener('change', e => FR.on = e.target.checked);
-    $('frSh').addEventListener('change', e => FR.shadowOn = e.target.checked);
     $('frTxt').addEventListener('change', e => FR.txtOn = e.target.checked);
     $('frLight').addEventListener('change', e => FR.lightMode = e.target.value);
     $('frTxtLight').addEventListener('change', e => FR.txtLight = e.target.value);
