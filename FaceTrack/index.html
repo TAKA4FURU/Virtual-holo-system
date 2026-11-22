@@ -74,7 +74,9 @@
   #panel .ft .chk { display: inline-flex; gap: 6px; align-items: center; margin: 4px 14px 4px 24px; }
   /* 額縁：画面に固定（どの操作でも動かない）。表面の凹凸だけが角度で光り方を変える */
   #frame { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
-  #status { z-index: 3; }
+  /* 額縁より手前に出す文字（みっけねこ・ビッグ） */
+  #front { position: fixed; inset: 0; overflow: hidden; z-index: 3; pointer-events: none; }
+  #status { z-index: 4; }
 </style>
 </head>
 <body>
@@ -82,6 +84,7 @@
 <div id="status">傾きセンサー：未開始</div>
 <div id="card"></div>
 <canvas id="frame"></canvas>
+<div id="front"></div>
 <div id="panel"></div>
 
 <div id="ui">
@@ -133,7 +136,7 @@
     // 3Dの猫（2Dの猫 CHARA_R/G/B/C・CHARA_BG の代わり。置く位置は CHARA_BG と同じ）
     cat3d:   { file: '04_CHARA_BG', name: '3D CAT（仮モデル）', kind: '3d', dist: 40, visible: true,
                axis: 'xy', pats: ['v', 'h', 'light'], pattern: 'h', offset: 0, size: 3, holo: 70, grain: 0, blur: 5, alpha: 90,
-               look: 100, zpx: 30, light: 100, lightX: 0, lightY: -30, shadow: 70, soft: 30, scale: 130, posY: 0 },
+               look: 100, zpx: 30, light: 100, lightMode: 'world', lightX: 0, lightY: -30, shadow: 70, soft: 30, scale: 130, posY: 0 },
     starDS:  { file: '03_STAR_DS',  name: '03 STAR_DS',  kind: 'base', dist: 3.02, visible: true, gray: 0, opacity: 100 },
     star:    { file: '02_STAR',     name: '02 STAR',     kind: 'holo', pats: ['v', 'h'],
                visible: true, axis: 'xy', pattern: 'h', offset: 60,  size: 2, opacity: 100, dist: 3 },
@@ -181,6 +184,7 @@
   }
 
   const card = $('card'), status = $('status'), powerEl = $('power');
+  const FRONT_KEYS = ['nameBG', 'nameY', 'nameB', 'bigBG', 'bigG', 'bigB'];   // 額縁より手前に出す層
   const POWER_MAX = 1.5;                 // 強さ10のときの倍率
   let power = +powerEl.value / 10 * POWER_MAX;
   let box = { s: 0, left: 0, top: 0, k: 1 };   // 素材の箱（画面上の大きさと位置）
@@ -188,7 +192,7 @@
   // ===== DOM を作る =====
   for (const k of ORDER) {
     const c = L[k], el = document.createElement('div');
-    el.className = 'layer'; c.el = el; card.appendChild(el);
+    el.className = 'layer'; c.el = el; (FRONT_KEYS.includes(k) ? $('front') : card).appendChild(el);
     if (c.kind === 'holo') {
       el.innerHTML = '<div class="mask"><canvas class="fill"></canvas></div>';
       c.maskEl = el.firstElementChild; c.fill = { c: c.maskEl.firstElementChild, cfg: c };
@@ -585,14 +589,24 @@
     lastVal = v; lastEvtT = now;
     if (!gyroActive) { gyroActive = true; if (mode === 'gyro') status.textContent = '傾きセンサー：動作中'; }
   }
+  // ===== ライトの向き（画面の座標：x＋＝右から、y＋＝下から）=====
+  // 'head'＝顔の少し上から照らす（顔と一緒に動く）、'world'＝部屋に固定（顔では変わらず、ジャイロではスマホの傾きで変わる）
+  const headLight = (x, y) => [-x * .6, -y * .6 - FR.lightUp / 100];
+  function lightFor(modeL, base, x, y) {
+    if (modeL === 'head') return headLight(x, y);
+    return mode === 'face' ? [base[0], base[1]] : [base[0] - x * .5, base[1] - y * .5];
+  }
+
   // ===== 額縁（コードで作る彫りの額縁。ホロの虹色。画面に固定し、光の当たり方だけ角度で変わる）=====
-  const FR = { on: true, width: 120, relief: 100, offset: 0, size: 2, shadowOn: true, shadowAmt: 60, shadowLen: 60, shadowSoft: 40 };
+  const FR = { on: true, width: 120, relief: 100, offset: 0, size: 2, shadowOn: true, shadowAmt: 60, shadowLen: 60, shadowSoft: 40,
+    lightMode: 'head', lightUp: 35, txtOn: true, txtLight: 'frame', txtAmt: 55, txtLen: 40 };
   const frame = (() => {
     const cv = $('frame'), gl = cv.getContext('webgl', { premultipliedAlpha: false, alpha: true, antialias: false });
     if (!gl) return null;
     const vs = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }';
     const fs = `precision highp float;
       uniform vec2 uRes; uniform float uFw, uRelief, uHue, uSize, uShOn, uShAmt, uShLen, uShSoft; uniform vec3 uL; uniform vec2 uTilt;
+      uniform sampler2D uTxt; uniform vec4 uTxtRect; uniform vec2 uTxtOff; uniform float uTxtAmt;   // 手前の文字が額縁に落とす影
       // 画面の縁からの距離で額縁の断面を作る（四隅は自然に45°で合わさる）
       float prof(vec2 p, out float t, out float s) {
         vec2 q = min(p, uRes - p); float d = min(q.x, q.y); t = d / uFw;
@@ -632,6 +646,15 @@
         float ao = clamp(.78 + h0 * .5, .55, 1.);
         vec3 plaster = vec3(.93, .915, .89);
         vec3 col = plaster * (.28 + .80 * dif) * ao + vec3(1.) * spec * .08;
+        if (uTxtAmt > 0.) {                        // 文字の影：文字の形を光と反対へずらして重ねる（少しぼかす）
+          float a = 0.;
+          for (int i = 0; i < 5; i++) {
+            vec2 o = vec2(i == 1 ? 1. : i == 2 ? -1. : 0., i == 3 ? 1. : i == 4 ? -1. : 0.) * uFw * .06;
+            vec2 uv = (p - uTxtOff + o - uTxtRect.xy) / uTxtRect.zw;
+            if (uv.x > 0. && uv.x < 1. && uv.y > 0. && uv.y < 1.) a += texture2D(uTxt, vec2(uv.x, 1. - uv.y)).a;
+          }
+          col *= 1. - uTxtAmt * a / 5.;
+        }
         col *= 1. - .35 * (1. - smoothstep(0., .035, t)) - .30 * smoothstep(.975, 1., t);   // 外周と内周に細い影の線
         gl_FragColor = vec4(col, 1.);
       }`;
@@ -641,11 +664,18 @@
     gl.useProgram(pr);
     const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const U = {}; for (const n of ['uRes', 'uFw', 'uRelief', 'uHue', 'uSize', 'uShOn', 'uShAmt', 'uShLen', 'uShSoft', 'uL', 'uTilt']) U[n] = gl.getUniformLocation(pr, n);
+    const U = {}; for (const n of ['uRes', 'uFw', 'uRelief', 'uHue', 'uSize', 'uShOn', 'uShAmt', 'uShLen', 'uShSoft', 'uL', 'uTilt', 'uTxt', 'uTxtRect', 'uTxtOff', 'uTxtAmt']) U[n] = gl.getUniformLocation(pr, n);
+    // 文字の形（ビッグとみっけねこの縁取りをまとめた画像）
+    const txTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, txTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    { const im = new Image(); im.onload = () => { gl.bindTexture(gl.TEXTURE_2D, txTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+        for (const [q, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, q, v); };
+      im.src = ASSETS.img['00_CASTER0'].src; }
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     let dpr = 1;
     function resize() { dpr = Math.min(devicePixelRatio || 1, 3); cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr); gl.viewport(0, 0, cv.width, cv.height); }
-    function draw(x, y, light) {
+    function draw(x, y, light, txt) {
       cv.style.display = FR.on ? '' : 'none'; if (!FR.on) return;
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
       gl.uniform2f(U.uRes, cv.width, cv.height); gl.uniform1f(U.uFw, FR.width * box.k * dpr);
@@ -654,6 +684,13 @@
       gl.uniform1f(U.uShLen, FR.shadowLen / 100); gl.uniform1f(U.uShSoft, FR.shadowSoft / 100);
       gl.uniform3f(U.uL, light[0], -light[1], 1);          // 画面の座標は上が＋なので上下を反転
       gl.uniform2f(U.uTilt, -x, y);
+      // 文字の影：txt.rect＝画面上の文字の位置（CSSのpx、左上基準）、txt.light＝影を作るライト
+      const fw = FR.width * box.k * dpr, H = cv.height;
+      const r = txt.rect, Lt = txt.light, len = FR.txtLen / 100 * fw;
+      gl.uniform4f(U.uTxtRect, r[0] * dpr, H - (r[1] + r[3]) * dpr, r[2] * dpr, r[3] * dpr);
+      gl.uniform2f(U.uTxtOff, -Lt[0] * len, Lt[1] * len);          // 光と反対へずれる（画面の座標は上が＋）
+      gl.uniform1f(U.uTxtAmt, FR.txtOn ? FR.txtAmt / 100 : 0);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, txTex); gl.uniform1i(U.uTxt, 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     return { resize, draw };
@@ -780,7 +817,7 @@
     const v = clamp(axisValue(c.axis, x, y), -1.55, 1.55);
     // ライトは現実の空間（スマホの外）に固定。スマホを傾けると、当たる向きが変わる
     // lightX：マイナス＝左から、lightY：プラス＝下から（スマホを持つ手元のほうから光が来るイメージ）
-    const lx = c.lightX / 100 - x * .5, ly = c.lightY / 100 - y * .5;
+    const [lx, ly] = lightFor(c.lightMode, [c.lightX / 100, c.lightY / 100], x, y);
     const P = pivotDist(), zs = zoomOf(c.dist) / zoomOf(P), CX = innerWidth / 2, CY = innerHeight / 2;
     const zr = (r, d) => { const s = zoomOf(d) / zoomOf(P); return [CX + (r[0] - CX) * s, CY + (r[1] - CY) * s, r[2] * s, r[3] * s]; };
     c.cat.draw({
@@ -829,7 +866,16 @@
       if (c.fill) moveFill(c.fill, clamp(x, -1.5, 1.5), clamp(y, -1.5, 1.5));
       if (c.glint) updateGlint(c, sp.x, sp.y);
     }
-    if (frame) { const C = L.cat3d; frame.draw(x, y, [C.lightX / 100 - x * .5, C.lightY / 100 - y * .5]); }   // ライトは3D猫と同じ
+    if (frame) {
+      const C = L.cat3d, world = lightFor('world', [C.lightX / 100, C.lightY / 100], x, y);
+      const fl = FR.lightMode === 'head' ? headLight(x, y) : world;
+      // 手前の文字（縁取りの層と同じ動き）の、いまの画面上の位置
+      const b = L.bigBG, C0 = ASSETS.img['00_CASTER0'], BB = ASSETS.img['01_BIG_BG'];
+      const rel = zOf('bigBG') - P, zs = zoomOf(zOf('bigBG')) / zoomOf(P), CX = innerWidth / 2, CY = innerHeight / 2;
+      const x0 = b.pos.left + (C0.x - BB.x) * box.k, y0 = b.pos.top + (C0.y - BB.y) * box.k;
+      const rect = [CX + (x0 - CX) * zs - x * rel * PX_PER_UNIT * zs, CY + (y0 - CY) * zs - y * rel * PX_PER_UNIT * zs, C0.w * box.k * zs, C0.h * box.k * zs];
+      frame.draw(x, y, fl, { rect, light: FR.txtLight === 'frame' ? fl : world });
+    }
     requestAnimationFrame(tick);
   }
 
@@ -873,6 +919,8 @@
         h += slider(k, 'holo', 'ホロの濃さ', '%'); h += slider(k, 'blur', 'ぼかし', '%'); h += slider(k, 'alpha', '不透明度', '%');
         h += slider(k, 'look', '覗き込みの強さ', '%'); h += slider(k, 'zpx', '奥行きの尺度');
         h += slider(k, 'light', 'ライトの明るさ', '%');
+        h += `<label class="sl"><span>ライトの位置</span><select data-k="${k}" data-f="lightMode">${[['world', '部屋に固定'], ['head', '顔の少し上から']].map(([v, n]) =>
+          `<option value="${v}"${c.lightMode === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>`;
         h += slider(k, 'lightX', 'ライト左右（−左）'); h += slider(k, 'lightY', 'ライト上下（＋下）');
         h += slider(k, 'shadow', '影の濃さ', '%'); h += slider(k, 'soft', '影のぼかし', '%');
         h += slider(k, 'scale', '大きさ', '%'); h += slider(k, 'posY', '位置（上下）', '%');
@@ -891,6 +939,14 @@
       `<div class="ft"><div class="head"><label class="chk" style="margin-left:0"><input type="checkbox" id="frOn"${FR.on ? ' checked' : ''}><b>額縁（白い石膏・画面に固定）</b></label></div>
       ${[['width', '太さ', 20, 300, 1], ['relief', '凹凸の強さ', 0, 300, 5]].map(([f, n, a, b, st]) =>
         `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}
+      <label class="sl"><span>ライト</span><select id="frLight">${[['head', '顔の少し上から'], ['world', '部屋に固定（3D猫と同じ）']].map(([v, n]) =>
+        `<option value="${v}"${FR.lightMode === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="sl"><span>ライトの高さ（顔より上）</span><input type="range" data-fr="lightUp" min="0" max="100" step="1" value="${FR.lightUp}"><input type="number" class="num" data-fr="lightUp" value="${FR.lightUp}"></label>
+      <label class="chk"><input type="checkbox" id="frTxt"${FR.txtOn ? ' checked' : ''}>文字（みっけねこ・ビッグ）の影を額縁に落とす</label>
+      <label class="sl"><span>文字の影のライト</span><select id="frTxtLight">${[['frame', '額縁と同じ'], ['world', '部屋に固定（3D猫と同じ）']].map(([v, n]) =>
+        `<option value="${v}"${FR.txtLight === v ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+      ${[['txtAmt', '文字の影の濃さ', 0, 100, 1], ['txtLen', '文字の影の距離', 0, 200, 5]].map(([f, n, a, b, st]) =>
+        `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}
       <label class="chk"><input type="checkbox" id="frSh"${FR.shadowOn ? ' checked' : ''}>内側に影を落とす</label>
       ${[['shadowAmt', '影の濃さ', 0, 100, 1], ['shadowLen', '影の長さ', 0, 300, 5], ['shadowSoft', '影のぼかし', 0, 150, 5]].map(([f, n, a, b, st]) =>
         `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}</div>`);
@@ -902,6 +958,9 @@
       const f = el.dataset.fr; FR[f] = +el.value; p.querySelectorAll(`[data-fr="${f}"]`).forEach(o => { if (o !== el) o.value = el.value; }); }));
     $('frOn').addEventListener('change', e => FR.on = e.target.checked);
     $('frSh').addEventListener('change', e => FR.shadowOn = e.target.checked);
+    $('frTxt').addEventListener('change', e => FR.txtOn = e.target.checked);
+    $('frLight').addEventListener('change', e => FR.lightMode = e.target.value);
+    $('frTxtLight').addEventListener('change', e => FR.txtLight = e.target.value);
     $('ftPivot').addEventListener('change', e => FT.pivot = e.target.value);
     $('ftFlipX').addEventListener('change', e => FT.flipX = e.target.checked);
     $('ftFlipY').addEventListener('change', e => FT.flipY = e.target.checked);
