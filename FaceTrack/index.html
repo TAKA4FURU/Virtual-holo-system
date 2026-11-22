@@ -627,11 +627,12 @@
         vec3 n = normalize(vec3(-hx / (2. * e) * amp, -hy / (2. * e) * amp, 1.));
         vec3 L = normalize(uL), V = normalize(vec3(uTilt * .5, 1.));
         float dif = max(dot(n, L), 0.);
-        float spec = pow(max(dot(reflect(-L, n), V), 0.), 36.);
-        // ホロ：面の向きと見る角度で虹がずれる（凹凸ごとに色が変わる）
-        float hue = uHue + (n.x * .8 + n.y * .5) * .12 * uSize + dot(uTilt, vec2(.25, .2)) + s / (uRes.y * uSize) ;
-        vec3 col = mix(vec3(.75), rainbow(fract(hue)), .85) * (.30 + .85 * dif) + vec3(1.) * spec * .9;
-        col *= 1. - .55 * (1. - smoothstep(0., .035, t)) - .45 * smoothstep(.975, 1., t);   // 外周と内周に細い暗い線
+        float spec = pow(max(dot(reflect(-L, n), V), 0.), 8.);
+        // 白い石膏：つやの少ない白。くぼみ（溝）ほど少し暗く
+        float ao = clamp(.78 + h0 * .5, .55, 1.);
+        vec3 plaster = vec3(.93, .915, .89);
+        vec3 col = plaster * (.28 + .80 * dif) * ao + vec3(1.) * spec * .08;
+        col *= 1. - .35 * (1. - smoothstep(0., .035, t)) - .30 * smoothstep(.975, 1., t);   // 外周と内周に細い影の線
         gl_FragColor = vec4(col, 1.);
       }`;
     const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o);
@@ -663,7 +664,7 @@
   const MP_VER = '0.10.14';
   const MP_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
   const MP_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
-  const FT = { sens: 100, zoom: 100, flipX: false, flipY: false, showCam: true, pivot: 'screen' };   // 設定（ホロ設定の一番上）
+  const FT = { sens: 100, zoom: 100, flipX: false, flipY: false, showCam: true, pivot: 'cat' };   // 設定（ホロ設定の一番上）
   let mode = 'face';                       // 'face'＝顔で動かす、'gyro'＝ジャイロ（マウス）で動かす
   let faceDet = null, faceOn = false, faceNeutral = null, faceRaw = null, faceLost = 0, lastVideoT = -1;
   let zoomR = 1, zoomTarget = 1;           // 近づく・離れる（1＝基準の距離、2＝半分の距離まで近づいた）
@@ -887,8 +888,8 @@
       <label class="chk"><input type="checkbox" id="ftFlipX"${FT.flipX ? ' checked' : ''}>左右を反転</label>
       <label class="chk"><input type="checkbox" id="ftFlipY"${FT.flipY ? ' checked' : ''}>上下を反転</label>
       <label class="chk"><input type="checkbox" id="ftCam"${FT.showCam ? ' checked' : ''}>カメラの小窓を表示</label></div>`,
-      `<div class="ft"><div class="head"><label class="chk" style="margin-left:0"><input type="checkbox" id="frOn"${FR.on ? ' checked' : ''}><b>額縁（画面に固定）</b></label></div>
-      ${[['width', '太さ', 20, 300, 1], ['relief', '凹凸の強さ', 0, 300, 5], ['offset', '開始位置', 0, 360, 5], ['size', 'サイズ', 1, 10, .5]].map(([f, n, a, b, st]) =>
+      `<div class="ft"><div class="head"><label class="chk" style="margin-left:0"><input type="checkbox" id="frOn"${FR.on ? ' checked' : ''}><b>額縁（白い石膏・画面に固定）</b></label></div>
+      ${[['width', '太さ', 20, 300, 1], ['relief', '凹凸の強さ', 0, 300, 5]].map(([f, n, a, b, st]) =>
         `<label class="sl"><span>${n}</span><input type="range" data-fr="${f}" min="${a}" max="${b}" step="${st}" value="${FR[f]}"><input type="number" class="num" data-fr="${f}" value="${FR[f]}"></label>`).join('')}
       <label class="chk"><input type="checkbox" id="frSh"${FR.shadowOn ? ' checked' : ''}>内側に影を落とす</label>
       ${[['shadowAmt', '影の濃さ', 0, 100, 1], ['shadowLen', '影の長さ', 0, 300, 5], ['shadowSoft', '影のぼかし', 0, 150, 5]].map(([f, n, a, b, st]) =>
