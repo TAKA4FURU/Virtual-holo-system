@@ -149,6 +149,28 @@
                visible: true, axis: 'xy', pattern: 'h', offset: 300, size: 2, opacity: 100, dist: 0 },
   };
   const ORDER = ['dust', 'gokou', 'foods', 'cat3d', 'starDS', 'star', 'bigBG', 'bigG', 'bigB', 'nameBG', 'nameY', 'nameB'];
+  // ===== まとめた設定（組）：開始位置だけ別々、ほかは共有。縁・影は黒100%で、距離は＋0.02で固定 =====
+  const GROUPS = {
+    grpName: { kind: 'group', name: '08 CATNAME（Y・B・縁）', holoKeys: ['nameY', 'nameB'], baseKey: 'nameBG', parts: { nameY: 'Y', nameB: 'B' },
+               pats: ['v', 'h'], visible: true, axis: 'xy', pattern: 'h', size: 2, opacity: 100, dist: 0 },
+    grpBig:  { kind: 'group', name: '01 BIG（G・B・縁）', holoKeys: ['bigG', 'bigB'], baseKey: 'bigBG', parts: { bigG: 'G', bigB: 'B' },
+               pats: ['v', 'h'], visible: true, axis: 'xy', pattern: 'h', size: 2, opacity: 100, dist: 0 },
+    grpStar: { kind: 'group', name: '02 STAR（星・影）', holoKeys: ['star'], baseKey: 'starDS', parts: { star: '' },
+               pats: ['v', 'h'], visible: true, axis: 'xy', pattern: 'h', size: 2, opacity: 100, dist: 3 },
+  };
+  const groupOf = k => Object.keys(GROUPS).find(g => GROUPS[g].holoKeys.includes(k) || GROUPS[g].baseKey === k);
+  // 組の値を中の層に配る
+  function applyGroup(g, f) {
+    const G = GROUPS[g], fs = f ? [f] : ['visible', 'axis', 'pattern', 'size', 'opacity', 'dist'];
+    for (const f of fs) {
+      for (const k of G.holoKeys) L[k][f] = G[f];
+      const b = L[G.baseKey];
+      if (f === 'visible') b.visible = G.visible;
+      if (f === 'dist') b.dist = +(G.dist + .02).toFixed(4);
+      b.gray = 0; b.opacity = 100;
+    }
+  }
+  for (const g in GROUPS) applyGroup(g);
   const PATTERN_NAMES = { v: '縦', h: '横', radial: 'ラジアル', light: 'ライト連動' };
 
   const zOf = k => L[k].dist;
@@ -815,21 +837,31 @@
   const LIMITS = { offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 100, .01],
     holo: [0, 100, 1], grain: [0, 100, 1], rot: [0, 40, 1], light: [0, 200, 1], shadow: [0, 100, 1], soft: [0, 100, 1], scale: [50, 150, 1],
     lightX: [-100, 100, 1], lightY: [-100, 100, 1], posY: [-30, 30, 1], look: [0, 200, 1], alpha: [0, 100, 1], zpx: [5, 80, 1] };
+  const cfgOf = k => GROUPS[k] || L[k];
   function slider(k, f, label, unit = '') {
     const [min, max, step] = LIMITS[f];
-    return `<label class="sl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${L[k][f]}" data-k="${k}" data-f="${f}">` +
-      `<span class="nw"><input type="number" class="num" min="${min}" max="${max}" step="any" value="${L[k][f]}" data-k="${k}" data-f="${f}">${unit}</span></label>`;
+    return `<label class="sl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${cfgOf(k)[f]}" data-k="${k}" data-f="${f}">` +
+      `<span class="nw"><input type="number" class="num" min="${min}" max="${max}" step="any" value="${cfgOf(k)[f]}" data-k="${k}" data-f="${f}">${unit}</span></label>`;
   }
   function buildPanel() {
     const rows = [];
-    for (const k of [...ORDER].reverse()) {
-      const c = L[k];
+    const done = new Set();
+    for (const k0 of [...ORDER].reverse()) {
+      const g = groupOf(k0);
+      if (g && done.has(g)) continue;
+      const k = g || k0; if (g) done.add(g);
+      const c = g ? GROUPS[g] : L[k];
       let h = `<div class="row"><div class="head"><input type="checkbox" data-k="${k}" data-f="visible"${c.visible ? ' checked' : ''}><b>${c.name}</b>`;
       if (c.axis) h += `<select data-k="${k}" data-f="axis">${[['y', '縦の傾き'], ['x', '横の傾き'], ['xy', '縦横両方']].map(([v, n]) =>
         `<option value="${v}"${c.axis === v ? ' selected' : ''}>${n}</option>`).join('')}</select>`;
       if (c.pats) h += `<select data-k="${k}" data-f="pattern">${c.pats.map(v =>
         `<option value="${v}"${c.pattern === v ? ' selected' : ''}>${PATTERN_NAMES[v]}</option>`).join('')}</select>`;
       h += `</div>`;
+      if (c.kind === 'group') {
+        for (const m of c.holoKeys) h += slider(m, 'offset', c.parts[m] ? `開始位置（${c.parts[m]}）` : '開始位置');
+        h += slider(k, 'size', 'サイズ'); h += slider(k, 'opacity', '不透明度', '%'); h += slider(k, 'dist', 'カメラからの距離');
+        rows.push(h + '</div>'); continue;
+      }
       if (c.kind === 'line') h += slider(k, 'offset', '光の開始位置');
       if (c.kind === 'holo') { h += slider(k, 'offset', '開始位置'); h += slider(k, 'size', 'サイズ'); }
       if (c.kind === 'base') h += slider(k, 'gray', '色（黒〜50%灰）', '%');
@@ -874,13 +906,25 @@
     $('ftFlipY').addEventListener('change', e => FT.flipY = e.target.checked);
     $('ftCam').addEventListener('change', e => { FT.showCam = e.target.checked; $('camBox').style.display = (mode === 'face' && faceOn && FT.showCam) ? 'block' : 'none'; });
     p.querySelectorAll('select[data-k]').forEach(el => el.addEventListener('change', () => {
-      const c = L[el.dataset.k]; c[el.dataset.f] = el.value; if (c.fill) paintFill(c.fill);
+      const k = el.dataset.k, f = el.dataset.f;
+      if (GROUPS[k]) { GROUPS[k][f] = el.value; applyGroup(k, f); for (const m of GROUPS[k].holoKeys) if (L[m].fill) paintFill(L[m].fill); return; }
+      const c = L[k]; c[f] = el.value; if (c.fill) paintFill(c.fill);
     }));
     p.querySelectorAll('input[type=checkbox][data-k]').forEach(el => el.addEventListener('change', () => {
-      L[el.dataset.k].visible = el.checked; applyLooks();
+      const k = el.dataset.k;
+      if (GROUPS[k]) { GROUPS[k].visible = el.checked; applyGroup(k, 'visible'); } else L[k].visible = el.checked;
+      applyLooks();
     }));
     let repaint = null;
     const setValue = (k, f, v, from) => {
+      if (GROUPS[k]) {                     // 組：値を中の層に配る（縁・影の距離は＋0.02）
+        const G = GROUPS[k], [min, max] = LIMITS[f];
+        v = clamp(isNaN(v) ? G[f] : v, min, max); G[f] = v;
+        p.querySelectorAll(`input[data-k="${k}"][data-f="${f}"]`).forEach(el => { if (el !== from) el.value = v; });
+        for (const m of G.holoKeys) setValue(m, f, v);
+        if (f === 'dist') setValue(G.baseKey, 'dist', +(v + .02).toFixed(4));
+        return;
+      }
       const [min, max] = LIMITS[f], c = L[k];
       v = clamp(isNaN(v) ? c[f] : v, min, max);
       c[f] = v;
@@ -895,7 +939,7 @@
     };
     p.querySelectorAll('input[type=range][data-k]').forEach(el => el.addEventListener('input', () => setValue(el.dataset.k, el.dataset.f, +el.value, el)));
     p.querySelectorAll('input.num[data-k]').forEach(el => {
-      el.addEventListener('change', () => { setValue(el.dataset.k, el.dataset.f, parseFloat(el.value)); el.value = L[el.dataset.k][el.dataset.f]; });
+      el.addEventListener('change', () => { setValue(el.dataset.k, el.dataset.f, parseFloat(el.value)); el.value = cfgOf(el.dataset.k)[el.dataset.f]; });
       el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
     });
   }
