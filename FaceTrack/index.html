@@ -118,7 +118,7 @@
   // axis: 反応する傾き 'y'=縦 / 'x'=横 / 'xy'=両方
   // pattern: 'v'=縦 / 'h'=横 / 'radial'=ラジアル
   // offset: 色の開始位置(0〜360)  size: 1〜100（1＝縦画面の高さで虹1周）
-  // dist: カメラからの距離 0（近い）〜30（遠い）。近いものほど手前に重なる
+  // dist: カメラからの距離 0（近い）〜100（遠い）。近いものほど手前に重なる
   const L = {
     dust:    { file: '07_DUST',     name: '07 DUST',     kind: 'holo', far: true, pats: ['v', 'h', 'radial'],
                visible: true, axis: 'xy', pattern: 'h',      offset: 0,   size: 2, opacity: 100, blur: 50, dist: 30 },
@@ -733,7 +733,7 @@
 
   // ===== 設定パネル =====
   // スライダーの右に数値入力欄。どちらを変えても同じ値になる
-  const LIMITS = { offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 30, .01],
+  const LIMITS = { offset: [0, 360, 5], size: [1, 20, 1], gray: [0, 50, 1], opacity: [0, 100, 1], blur: [0, 100, 1], dist: [0, 100, .01],
     holo: [0, 100, 1], grain: [0, 100, 1], rot: [0, 40, 1], light: [0, 200, 1], shadow: [0, 100, 1], soft: [0, 100, 1], scale: [50, 150, 1],
     lightX: [-100, 100, 1], lightY: [-100, 100, 1], posY: [-30, 30, 1], look: [0, 200, 1], alpha: [0, 100, 1], zpx: [5, 80, 1] };
   function slider(k, f, label, unit = '') {
