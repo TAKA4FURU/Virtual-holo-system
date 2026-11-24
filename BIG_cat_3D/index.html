@@ -873,6 +873,7 @@
     rebuild(); for (const k of ORDER) if (L[k].fill) paintFill(L[k].fill);
   };
   window.__pose = p => { ext = p; };
+  let paused = false; window.__pause = v => { paused = !!v; };   // 縦向きの間は片目用の画面を止める
   function eyeWin(i) { try { return eyes[i].contentWindow; } catch (e) { return null; } }
   function sendSnapshot() { const sn = snapshot(); for (let i = 0; i < 2; i++) { const w = eyeWin(i); if (w && w.__applySnapshot) w.__applySnapshot(sn); } }
   function sendPose() {
@@ -880,7 +881,14 @@
     for (let i = 0; i < 2; i++) { const w = eyeWin(i); if (w && w.__pose) w.__pose(p); }
   }
   function layoutStereo() {
+    // 縦向きの間は左右の画面を隠して止める（大きさを変えると描き直しでメモリが溢れるため）。横に戻したら同じ大きさで再開
+    const portrait = innerWidth < innerHeight, pair = $('stereoPair');
+    pair.style.display = portrait ? 'none' : '';
+    for (let i = 0; i < 2; i++) { const w = eyeWin(i); if (w && w.__pause) w.__pause(portrait); }
+    if (portrait) return;
     const sep = ST.sepCm * PX_PER_CM, w = Math.min(sep, innerWidth / 2);
+    if (!pair.dataset.h) pair.dataset.h = innerHeight;          // 高さは最初の横向きの値で固定
+    pair.style.bottom = 'auto'; pair.style.height = pair.dataset.h + 'px';
     for (const f of eyes) f.style.width = Math.round(w) + 'px';
     $('stereoPair').style.gap = Math.max(0, Math.round(sep - w)) + 'px';
     $('sepV').textContent = ST.sepCm.toFixed(1); $('eyeV').textContent = ST.eye;
@@ -1011,6 +1019,7 @@
   const sp = { x: 0, y: 0, vx: 0, vy: 0 }, DAMP_C = 2 * Math.sqrt(SPRING_K) * SPRING_DAMP;
   let lastT = performance.now();
   function tick(t) {
+    if (paused) { requestAnimationFrame(tick); return; }
     const dt = clamp((t - lastT) / 1000, .001, 1 / 30); lastT = t;
     if (EYE) { if (ext) { sp.x = ext.sx; sp.y = ext.sy; zoomR = ext.zoomR; } }
     else detectFace();
@@ -1207,7 +1216,7 @@
     e.currentTarget.textContent = '背景：' + BGS[bgi][0];
   });
 
-  let rz; window.addEventListener('resize', () => { if (stereoOn) return; clearTimeout(rz); rz = setTimeout(rebuild, 150); });
+  let rz; window.addEventListener('resize', () => { if (stereoOn || EYE || STEREO) return;   /* 3D表示の画面は回転しても作り直さない（作り直しの瞬間にメモリが溢れて落ちるため） */ clearTimeout(rz); rz = setTimeout(rebuild, 150); });
   buildPanel();
   rebuild();
   if (EYE) shrinkAssets();
