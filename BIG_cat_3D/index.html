@@ -881,6 +881,7 @@
     for (let i = 0; i < 2; i++) { const w = eyeWin(i); if (w && w.__pose) w.__pose(p); }
   }
   function layoutStereo() {
+    if (exiting) return;
     // 縦向きの間は左右の画面を隠して止める（大きさを変えると描き直しでメモリが溢れるため）。横に戻したら同じ大きさで再開
     const portrait = innerWidth < innerHeight, pair = $('stereoPair');
     pair.style.display = portrait ? 'none' : '';
@@ -916,7 +917,7 @@
   // やめるときは、今の設定を覚えてページを読み直す（捨てた絵を作り直すため）
   // 横向きになってから、左目→右目の順に1つずつ読み込む（同時に読むとメモリが一気に増えるため）
   function loadEyesWhenLandscape() {
-    if (!stereoOn || eyes[0].dataset.started) return;
+    if (exiting || !stereoOn || eyes[0].dataset.started) return;
     if (innerWidth < innerHeight) { setTimeout(loadEyesWhenLandscape, 400); return; }
     eyes[0].dataset.started = '1';
     const base = location.href.split('#')[0].split('?')[0];
@@ -939,9 +940,18 @@
   }
   function stopStereo() {
     try { sessionStorage.setItem('ftSnap', JSON.stringify(snapshot())); } catch (e) {}
-    for (const f of eyes) f.src = 'about:blank';
-    location.href = location.href.split('#')[0].split('?')[0];
+    // 左右の画面を先に完全に捨てる。横のまま通常ページを開くと、横長で全部作ってから縦で作り直すことになり落ちるため、
+    // iPhoneでは縦に戻してから通常ページを開く
+    for (const f of eyes) { try { f.src = 'about:blank'; f.remove(); } catch (e) {} }
+    eyes = []; exiting = true;
+    $('stereoBar').style.display = 'none';
+    const msg = $('rotateMsg'); msg.textContent = 'iPhoneを縦にすると通常表示に戻ります'; msg.style.display = 'flex';
+    try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (e) {}
+    const touch = matchMedia('(pointer: coarse)').matches, base = location.href.split('#')[0].split('?')[0];
+    const go = () => { if (touch && innerWidth > innerHeight) { setTimeout(go, 300); return; } setTimeout(() => { location.href = base; }, touch ? 400 : 0); };
+    setTimeout(go, 200);
   }
+  let exiting = false;
   function flashBar() { $('stereo').classList.add('showBar'); clearTimeout(barTimer); barTimer = setTimeout(() => $('stereo').classList.remove('showBar'), 3000); }
   if (!EYE) {
     // 3D表示：今の設定を覚えて、軽い「3D表示用の親ページ」に移る（今の画面の絵や顔認識のメモリを持ち越さないため）
