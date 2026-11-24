@@ -77,6 +77,20 @@
   /* 額縁より手前に出す文字（みっけねこ・ビッグ） */
   #front { position: fixed; inset: 0; overflow: hidden; z-index: 3; pointer-events: none; }
   #status { z-index: 4; }
+  /* 3D表示（平行法）：左目用・右目用の2画面を横に並べる */
+  #stereo { position: fixed; inset: 0; z-index: 20; background: #000; display: none; }
+  body.stereo #stereo { display: block; }
+  #stereoPair { position: absolute; left: 50%; top: 0; bottom: 0; transform: translateX(-50%); display: flex; gap: 0; }
+  #stereoPair iframe { border: 0; height: 100%; background: #000; display: block; }
+  #stereoBar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 14px; justify-content: center; align-items: center;
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); font: 12px system-ui, sans-serif; color: #ddd; background: rgba(0,0,0,.55);
+    opacity: .0; transition: opacity .3s; }
+  #stereo.showBar #stereoBar { opacity: 1; }
+  #stereoBar button { font: inherit; color: #fff; background: #333; border: 1px solid #666; border-radius: 8px; padding: 4px 10px; }
+  #rotateMsg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: #fff; font: 18px system-ui, sans-serif; background: #000; }
+  @media (orientation: portrait) { body.stereo #rotateMsg { display: flex; } }
+  /* 片目用の画面（iframeの中）：操作ボタンなどは出さない */
+  body.eye #ui, body.eye #status, body.eye #panel, body.eye #toast, body.eye #camBox, body.eye #start { display: none !important; }
 </style>
 </head>
 <body>
@@ -94,8 +108,18 @@
   <button id="recenter">水平リセット</button>
   <button id="panelBtn">ホロ設定</button>
   <button id="hideBtn">表示を消す</button>
+  <button id="stereoBtn">3D表示</button>
 </div>
 <div id="toast"></div>
+<div id="stereo">
+  <div id="stereoPair"><iframe id="eyeL" title="左目"></iframe><iframe id="eyeR" title="右目"></iframe></div>
+  <div id="stereoBar">
+    <label>間隔 <input type="range" id="sepR" min="4" max="8" step=".1"> <span id="sepV"></span>cm</label>
+    <label>立体の強さ <input type="range" id="eyeR2" min="0" max="60" step="1"> <span id="eyeV"></span></label>
+    <button id="stereoExit">3D表示をやめる</button>
+  </div>
+  <div id="rotateMsg">iPhoneを横向きにしてください</div>
+</div>
 <div id="camBox"><video id="cam" playsinline muted></video><div id="camDot"></div></div>
 
 <div id="start">
@@ -185,6 +209,10 @@
 
   const card = $('card'), status = $('status'), powerEl = $('power');
   const FRONT_KEYS = ['nameBG', 'nameY', 'nameB', 'bigBG', 'bigG', 'bigB'];   // 額縁より手前に出す層
+  // 3D表示の片目用の画面として開かれたとき（?eye=L / ?eye=R）：動きは親の画面から受け取る
+  const EYE = new URLSearchParams(location.search).get('eye');
+  if (EYE) document.body.classList.add('eye', 'noui');
+  let ext = null;                          // 親から届く { sx, sy, zoomR, eyeE }
   const POWER_MAX = 1.5;                 // 強さ10のときの倍率
   let power = +powerEl.value / 10 * POWER_MAX;
   let box = { s: 0, left: 0, top: 0, k: 1 };   // 素材の箱（画面上の大きさと位置）
@@ -806,6 +834,69 @@
     } catch (err) { if (mode === 'gyro') status.textContent = 'センサー開始に失敗：' + err.message; }
   }
   $('startBtn').addEventListener('click', start);
+
+  // ===== 3D表示（平行法）=====
+  // 親の画面は顔／ジャイロを読み続け、左右2つの片目用画面（同じページを ?eye=L/R で開いたもの）に動きと設定を送る
+  const ST = { sepCm: 6, eye: 12 };          // 間隔（左右の絵の中心の距離、cm）、立体の強さ（目の幅ぶんのずれ）
+  const PX_PER_CM = 460 / 3 / 2.54;          // iPhone 14 Pro Max：460ppi、CSSの1px＝実際の3画素
+  let stereoOn = false, eyes = [], barTimer = 0;
+  // 設定の写し（数値・文字・真偽だけ）
+  const plain = o => { const r = {}; for (const [k, v] of Object.entries(o)) if (['number', 'string', 'boolean'].includes(typeof v)) r[k] = v; return r; };
+  function snapshot() {
+    const Ls = {}; for (const k in L) Ls[k] = plain(L[k]);
+    const Gs = {}; for (const g in GROUPS) Gs[g] = plain(GROUPS[g]);
+    return { L: Ls, G: Gs, FT: plain(FT), FR: plain(FR), power, mode, bg: card.style.getPropertyValue('--bg') };
+  }
+  window.__applySnapshot = snap => {      // 片目用の画面で呼ばれる
+    for (const k in snap.L) Object.assign(L[k], snap.L[k]);
+    for (const g in snap.G) Object.assign(GROUPS[g], snap.G[g]);
+    Object.assign(FT, snap.FT); Object.assign(FR, snap.FR);
+    power = snap.power; mode = snap.mode; if (snap.bg) card.style.setProperty('--bg', snap.bg);
+    rebuild(); for (const k of ORDER) if (L[k].fill) paintFill(L[k].fill);
+  };
+  window.__pose = p => { ext = p; };
+  function eyeWin(i) { try { return eyes[i].contentWindow; } catch (e) { return null; } }
+  function sendSnapshot() { const sn = snapshot(); for (let i = 0; i < 2; i++) { const w = eyeWin(i); if (w && w.__applySnapshot) w.__applySnapshot(sn); } }
+  function sendPose() {
+    const p = { sx: sp.x, sy: sp.y, zoomR, eyeE: ST.eye / 100 };
+    for (let i = 0; i < 2; i++) { const w = eyeWin(i); if (w && w.__pose) w.__pose(p); }
+  }
+  function layoutStereo() {
+    const sep = ST.sepCm * PX_PER_CM, w = Math.min(sep, innerWidth / 2);
+    for (const f of eyes) f.style.width = Math.round(w) + 'px';
+    $('stereoPair').style.gap = Math.max(0, Math.round(sep - w)) + 'px';
+    $('sepV').textContent = ST.sepCm.toFixed(1); $('eyeV').textContent = ST.eye;
+  }
+  function startStereo() {
+    stereoOn = true; document.body.classList.add('stereo');
+    eyes = [$('eyeL'), $('eyeR')];
+    const base = location.href.split('#')[0].split('?')[0];
+    let loaded = 0;
+    eyes.forEach((f, i) => { f.onload = () => { if (++loaded === 2) setTimeout(sendSnapshot, 300); }; f.src = base + '?eye=' + (i ? 'R' : 'L'); });
+    $('sepR').value = ST.sepCm; $('eyeR2').value = ST.eye; layoutStereo();
+    try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
+    card.style.visibility = 'hidden'; $('frame').style.visibility = 'hidden'; $('front').style.visibility = 'hidden';
+    flashBar();
+  }
+  function stopStereo() {
+    stereoOn = false; document.body.classList.remove('stereo');
+    for (const f of eyes) f.src = 'about:blank';
+    card.style.visibility = ''; $('frame').style.visibility = ''; $('front').style.visibility = '';
+    try { screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); } catch (e) {}
+  }
+  function flashBar() { $('stereo').classList.add('showBar'); clearTimeout(barTimer); barTimer = setTimeout(() => $('stereo').classList.remove('showBar'), 3000); }
+  if (!EYE) {
+    $('stereoBtn').addEventListener('click', startStereo);
+    $('stereoExit').addEventListener('click', stopStereo);
+    $('stereo').addEventListener('pointerdown', flashBar);
+    $('sepR').addEventListener('input', e => { ST.sepCm = +e.target.value; layoutStereo(); });
+    $('eyeR2').addEventListener('input', e => { ST.eye = +e.target.value; layoutStereo(); });
+    addEventListener('resize', () => { if (stereoOn) layoutStereo(); });
+    // ホロ設定を変えたら、片目用の画面にも少し後でまとめて送る
+    let snapT = 0; const later = () => { if (stereoOn) { clearTimeout(snapT); snapT = setTimeout(sendSnapshot, 150); } };
+    $('panel').addEventListener('input', later); $('panel').addEventListener('change', later);
+    for (const id of ['power', 'powerNum', 'bgBtn', 'modeBtn']) $(id).addEventListener(id === 'bgBtn' || id === 'modeBtn' ? 'click' : 'input', later);
+  }
   $('recenter').addEventListener('click', () => { if (lastRaw) neutral = { ...lastRaw }; lastVal = null; vel = { x: 0, y: 0 }; target = { x: 0, y: 0 };
     if (faceRaw) { faceNeutral = { ...faceRaw }; zoomTarget = 1; } });
   function onPointer(e) {
@@ -830,7 +921,7 @@
   }
 
   // ===== 3Dの猫を描く（毎コマ）=====
-  function drawCat(c, x, y) {
+  function drawCat(c, x, y, ex = 0) {      // ex：片目用の目のずれ（位置だけに効かせ、色や光には効かせない）
     const big = L.bigBG, C0 = ASSETS.img['00_CASTER0'], BB = ASSETS.img['01_BIG_BG'];
     if (c.lastBlur !== c.blur) {                 // ぼかし：猫全体を1枚の絵としてぼかす（100%で20px）
       const px = c.blur / 100 * BLUR_MAX;
@@ -846,7 +937,7 @@
     c.cat.draw({
       cx: CX + (c.pos.left + c.geo.w / 2 - CX) * zs, cy: CY + (c.pos.top + c.geo.h / 2 + c.geo.h * c.posY / 100 - CY) * zs,
       height: c.geo.h * c.scale / 100 * zs,
-      shift: [-x * PX_PER_UNIT * zs, -y * PX_PER_UNIT * zs],          // 距離1あたりのずれ（平面の層と同じ）
+      shift: [-(x + ex) * PX_PER_UNIT * zs, -y * PX_PER_UNIT * zs],          // 距離1あたりのずれ（平面の層と同じ）
       dist: c.dist - P, zpx: c.zpx, look: c.look / 100,   // ずれは「止まって見える位置」からの距離で決まる          // 猫の各点の奥行き＝距離＋立体の厚み
       light: [lx, ly, 1],
       // ライト連動の色はライトの向きで決まる（傾きで動くのはライト）。縦・横は傾きで虹が流れる
@@ -866,27 +957,32 @@
   let lastT = performance.now();
   function tick(t) {
     const dt = clamp((t - lastT) / 1000, .001, 1 / 30); lastT = t;
-    detectFace();
-    zoomR += (zoomTarget - zoomR) * Math.min(1, dt * 10);
+    if (EYE) { if (ext) { sp.x = ext.sx; sp.y = ext.sy; zoomR = ext.zoomR; } }
+    else detectFace();
+    if (!EYE) zoomR += (zoomTarget - zoomR) * Math.min(1, dt * 10);
     let tx = target.x, ty = target.y;
     if (gyroActive && lastVal && mode === 'gyro') {
       const lead = Math.min(performance.now() / 1000 - lastEvtT + LEAD, .06);
       tx = clamp(lastVal.x + vel.x * lead, -1.15, 1.15); ty = clamp(lastVal.y + vel.y * lead, -1.15, 1.15);
     }
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 2 && !EYE; i++) {
       const h = dt / 2;
       sp.vx += (SPRING_K * (tx - sp.x) - DAMP_C * sp.vx) * h; sp.x += sp.vx * h;
       sp.vy += (SPRING_K * (ty - sp.y) - DAMP_C * sp.vy) * h; sp.y += sp.vy * h;
     }
-    const x = sp.x * power, y = sp.y * power, P = pivotDist();
+    if (stereoOn) { sendPose(); requestAnimationFrame(tick); return; }   // 3D表示中は、親の画面は動きを送るだけ（自分では描かない）
+    // 片目用：目の位置ぶん横にずらす（左目は頭が左に寄ったのと同じ＝x＋）
+    // 位置にだけ効かせる（ホロの色や光は左右の目で同じにして、見比べてもチラつかないように）
+    const ex = EYE && ext ? (EYE === 'L' ? 1 : -1) * ext.eyeE : 0;
+    const x = sp.x * power, y = sp.y * power, xe = x + ex, P = pivotDist();
     if (mode === 'face') updateFront(zoomOf(zOf('bigBG')) / zoomOf(P));
     else { updateFront(1.1); lift = 0; }      // ジャイロ操作のときは常に手前で、浮き出しなし
     for (const k of ORDER) {
       const c = L[k]; if (!c.visible) continue;
       const z = zOf(k);
-      if (c.kind === '3d') { if (c.cat) drawCat(c, x, y); continue; }
+      if (c.kind === '3d') { if (c.cat) drawCat(c, x, y, ex); continue; }
       { const rel = (z - P) * (FRONT_KEYS.includes(k) ? 1 + lift * .5 : 1), zs = zoomOf(z) / zoomOf(P);   // 浮き出した文字は額縁とのずれが大きくなる
-        const tf = rel || zs !== 1 ? `translate3d(${(-x * rel * PX_PER_UNIT * zs).toFixed(2)}px,${(-y * rel * PX_PER_UNIT * zs).toFixed(2)}px,0)` + (zs !== 1 ? ` scale(${zs.toFixed(4)})` : '') : '';
+        const tf = rel || zs !== 1 ? `translate3d(${(-xe * rel * PX_PER_UNIT * zs).toFixed(2)}px,${(-y * rel * PX_PER_UNIT * zs).toFixed(2)}px,0)` + (zs !== 1 ? ` scale(${zs.toFixed(4)})` : '') : '';
         if (c.lastTf !== tf) { c.el.style.transform = tf; c.lastTf = tf; } }
       if (c.fill) moveFill(c.fill, clamp(x, -1.5, 1.5), clamp(y, -1.5, 1.5));
       if (c.glint) updateGlint(c, sp.x, sp.y);
@@ -898,7 +994,7 @@
       const b = L.bigBG, C0 = ASSETS.img['00_CASTER0'], BB = ASSETS.img['01_BIG_BG'];
       const rel = (zOf('bigBG') - P) * (1 + lift * .5), zs = zoomOf(zOf('bigBG')) / zoomOf(P), CX = innerWidth / 2, CY = innerHeight / 2;
       const x0 = b.pos.left + (C0.x - BB.x) * box.k, y0 = b.pos.top + (C0.y - BB.y) * box.k;
-      const rect = [CX + (x0 - CX) * zs - x * rel * PX_PER_UNIT * zs, CY + (y0 - CY) * zs - y * rel * PX_PER_UNIT * zs, C0.w * box.k * zs, C0.h * box.k * zs];
+      const rect = [CX + (x0 - CX) * zs - xe * rel * PX_PER_UNIT * zs, CY + (y0 - CY) * zs - y * rel * PX_PER_UNIT * zs, C0.w * box.k * zs, C0.h * box.k * zs];
       frame.draw(x, y, fl, { rect, light: FR.txtLight === 'frame' ? fl : world, lift, front: textFront });
     }
     requestAnimationFrame(tick);
