@@ -80,6 +80,7 @@
   /* 3D表示（平行法）：左目用・右目用の2画面を横に並べる */
   #stereo { position: fixed; inset: 0; z-index: 20; background: #000; display: none; }
   body.stereo #stereo { display: block; }
+  body.stereo #start { z-index: 30; }
   #stereoPair { position: absolute; left: 50%; top: 0; bottom: 0; transform: translateX(-50%); display: flex; gap: 0; }
   #stereoPair iframe { border: 0; height: 100%; background: #000; display: block; }
   #stereoBar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 14px; justify-content: center; align-items: center;
@@ -212,6 +213,10 @@
   // 3D表示の片目用の画面として開かれたとき（?eye=L / ?eye=R）：動きは親の画面から受け取る
   const EYE = new URLSearchParams(location.search).get('eye');
   if (EYE) { document.body.classList.add('eye', 'noui'); document.body.style.visibility = 'hidden'; }
+  // 3D表示の親（?stereo=1）：絵は持たず、ジャイロの動きを左右の片目用画面に送るだけ
+  const STEREO = !EYE && new URLSearchParams(location.search).get('stereo') === '1';
+  if (STEREO) document.body.classList.add('stereo');
+  let assetsReady = !EYE && !STEREO;                  // 片目用は、絵を縮め終わるまでぼかしの作り直しをしない（大きな絵を開かないため）
   let ASSET_SCALE = 1;                     // 片目用は絵を半分の細かさにしてメモリを節約（画面が小さいので見た目はほぼ同じ）
   let ext = null;                          // 親から届く { sx, sy, zoomR, eyeE }
   const POWER_MAX = 1.5;                 // 強さ10のときの倍率
@@ -547,6 +552,7 @@
     const c = L[k];
     clearTimeout(blurTimers[k]);
     blurTimers[k] = setTimeout(() => {
+      if (!c.maskEl) return;                              // 絵を捨てたあと（3D表示の親）
       if (c.blurUrl) { URL.revokeObjectURL(c.blurUrl); c.blurUrl = null; }
       const px = c.blur / 100 * BLUR_MAX;                 // 画面上のpx
       if (px < 0.3) { setMask(c.maskEl, ASSETS.img[c.file].src); return; }
@@ -557,7 +563,7 @@
         const g = cv.getContext('2d'), OFF = w * 2;
         g.shadowColor = '#000'; g.shadowBlur = 2 * px / box.k * res * ASSET_SCALE; g.shadowOffsetX = OFF;
         g.drawImage(im, -OFF, 0, w, h);
-        cv.toBlob(b => { c.blurUrl = URL.createObjectURL(b); setMask(c.maskEl, c.blurUrl); });
+        cv.toBlob(b => { if (!c.maskEl) return; c.blurUrl = URL.createObjectURL(b); setMask(c.maskEl, c.blurUrl); });
       };
       im.src = ASSETS.img[c.file].src;
     }, 120);
@@ -584,7 +590,7 @@
       if (c.fill) paintFill(c.fill);
       if (c.kind === 'line') for (const g of c.bands) Object.assign(g.im.style, {
         left: g.b.x * box.k + 'px', top: g.b.y * box.k + 'px', width: g.b.w * box.k + 'px', height: g.b.h * box.k + 'px' });
-      if (c.far) applyBlur(k);
+      if (c.far && assetsReady) applyBlur(k);
     }
     applyLooks(); applyOrder();
   }
@@ -838,11 +844,12 @@
     try {
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         const r = await DeviceOrientationEvent.requestPermission();
-        if (r !== 'granted') { status.textContent = '傾きセンサー：許可されませんでした（ドラッグで操作できます）'; return; }
+        if (r !== 'granted') { status.textContent = '傾きセンサー：許可されませんでした（ドラッグで操作できます）'; if (STEREO) startStereo(); return; }
       }
       window.addEventListener('deviceorientation', onOrient);
+      if (STEREO) startStereo();
       setTimeout(() => { if (!gyroActive && mode === 'gyro') status.textContent = '傾きセンサーなし：マウス／ドラッグで操作'; }, 1200);
-    } catch (err) { if (mode === 'gyro') status.textContent = 'センサー開始に失敗：' + err.message; }
+    } catch (err) { if (mode === 'gyro') status.textContent = 'センサー開始に失敗：' + err.message; if (STEREO && !stereoOn) startStereo(); }
   }
   $('startBtn').addEventListener('click', start);
 
@@ -920,16 +927,21 @@
     }
     ASSET_SCALE = .5;
     for (const k of ORDER) { const c = L[k]; if (c.maskEl && ASSETS.img[c.file] && c.kind !== '3d') setMask(c.maskEl, ASSETS.img[c.file].src); }
-    rebuild(); document.body.style.visibility = '';
+    assetsReady = true; rebuild(); document.body.style.visibility = '';
   }
   function stopStereo() {
     try { sessionStorage.setItem('ftSnap', JSON.stringify(snapshot())); } catch (e) {}
     for (const f of eyes) f.src = 'about:blank';
-    location.reload();
+    location.href = location.href.split('#')[0].split('?')[0];
   }
   function flashBar() { $('stereo').classList.add('showBar'); clearTimeout(barTimer); barTimer = setTimeout(() => $('stereo').classList.remove('showBar'), 3000); }
   if (!EYE) {
-    $('stereoBtn').addEventListener('click', startStereo);
+    // 3D表示：今の設定を覚えて、軽い「3D表示用の親ページ」に移る（今の画面の絵や顔認識のメモリを持ち越さないため）
+    $('stereoBtn').addEventListener('click', () => {
+      const sn = snapshot(); sn.mode = 'gyro';
+      try { sessionStorage.setItem('ftSnap', JSON.stringify(sn)); } catch (e) {}
+      location.href = location.href.split('#')[0].split('?')[0] + '?stereo=1';
+    });
     $('stereoExit').addEventListener('click', stopStereo);
     $('stereo').addEventListener('pointerdown', flashBar);
     $('sepR').addEventListener('input', e => { ST.sepCm = +e.target.value; layoutStereo(); });
@@ -1013,7 +1025,7 @@
       sp.vx += (SPRING_K * (tx - sp.x) - DAMP_C * sp.vx) * h; sp.x += sp.vx * h;
       sp.vy += (SPRING_K * (ty - sp.y) - DAMP_C * sp.vy) * h; sp.y += sp.vy * h;
     }
-    if (stereoOn) { sendPose(); requestAnimationFrame(tick); return; }   // 3D表示中は、親の画面は動きを送るだけ（自分では描かない）
+    if (stereoOn || STEREO) { if (stereoOn) sendPose(); requestAnimationFrame(tick); return; }   // 3D表示中は、親の画面は動きを送るだけ（自分では描かない）
     // 片目用：目の位置ぶん横にずらす（左目は頭が左に寄ったのと同じ＝x＋）
     // 位置にだけ効かせる（ホロの色や光は左右の目で同じにして、見比べてもチラつかないように）
     const ex = EYE && ext ? (EYE === 'L' ? 1 : -1) * ext.eyeE : 0;
@@ -1200,8 +1212,10 @@
   rebuild();
   if (EYE) shrinkAssets();
   // 3D表示をやめて読み直したときは、その前の設定に戻す
-  if (!EYE) { try { const sn = sessionStorage.getItem('ftSnap'); if (sn) { sessionStorage.removeItem('ftSnap'); window.__applySnapshot(JSON.parse(sn)); buildPanel(); setPower(power / POWER_MAX * 10);
-    $('modeBtn').textContent = '操作：' + (mode === 'face' ? '顔' : 'ジャイロ'); } } catch (e) {} }
+  if (STEREO) { $('startBtn').textContent = 'タップして3D表示を開始'; mode = 'gyro'; }
+  if (!EYE) { try { const sn = sessionStorage.getItem('ftSnap'); if (sn) { if (!STEREO) sessionStorage.removeItem('ftSnap'); window.__applySnapshot(JSON.parse(sn)); buildPanel(); setPower(power / POWER_MAX * 10);
+    $('modeBtn').textContent = '操作：' + (mode === 'face' ? '顔' : 'ジャイロ'); }
+    if (STEREO) { mode = 'gyro'; freeOwnScene(); } } catch (e) {} }
   requestAnimationFrame(tick);
 })();
 </script>
