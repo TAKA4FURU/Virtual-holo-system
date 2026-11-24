@@ -211,7 +211,8 @@
   const FRONT_KEYS = ['nameBG', 'nameY', 'nameB', 'bigBG', 'bigG', 'bigB'];   // 額縁より手前に出す層
   // 3D表示の片目用の画面として開かれたとき（?eye=L / ?eye=R）：動きは親の画面から受け取る
   const EYE = new URLSearchParams(location.search).get('eye');
-  if (EYE) document.body.classList.add('eye', 'noui');
+  if (EYE) { document.body.classList.add('eye', 'noui'); document.body.style.visibility = 'hidden'; }
+  let ASSET_SCALE = 1;                     // 片目用は絵を半分の細かさにしてメモリを節約（画面が小さいので見た目はほぼ同じ）
   let ext = null;                          // 親から届く { sx, sy, zoomR, eyeE }
   const POWER_MAX = 1.5;                 // 強さ10のときの倍率
   let power = +powerEl.value / 10 * POWER_MAX;
@@ -554,7 +555,7 @@
         const res = .5, w = Math.round(im.width * res), h = Math.round(im.height * res);
         const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
         const g = cv.getContext('2d'), OFF = w * 2;
-        g.shadowColor = '#000'; g.shadowBlur = 2 * px / box.k * res; g.shadowOffsetX = OFF;
+        g.shadowColor = '#000'; g.shadowBlur = 2 * px / box.k * res * ASSET_SCALE; g.shadowOffsetX = OFF;
         g.drawImage(im, -OFF, 0, w, h);
         cv.toBlob(b => { c.blurUrl = URL.createObjectURL(b); setMask(c.maskEl, c.blurUrl); });
       };
@@ -769,6 +770,7 @@
       const opts = delegate => ({ baseOptions: { modelAssetPath: MP_MODEL, delegate }, runningMode: 'VIDEO', minDetectionConfidence: .5 });
       try { faceDet = await FaceDetector.createFromOptions(files, opts('GPU')); }
       catch (e) { faceDet = await FaceDetector.createFromOptions(files, opts('CPU')); }   // GPUが使えない端末向け
+      if (mode !== 'face' || stereoOn) { faceOn = true; stopFace(); return false; }   // 準備中にジャイロや3D表示に切り替わった
       faceOn = true; status.textContent = '顔：動作中（顔を正面に置いて「水平リセット」で基準を合わせられます）';
       $('camBox').style.display = FT.showCam ? 'block' : 'none';
       return true;
@@ -778,7 +780,7 @@
     }
   }
   function detectFace() {
-    if (!faceOn || video.readyState < 2 || video.currentTime === lastVideoT) return;
+    if (!faceOn || mode !== 'face' || !faceDet || video.readyState < 2 || video.currentTime === lastVideoT) return;
     lastVideoT = video.currentTime;
     const r = faceDet.detectForVideo(video, performance.now());
     const d = r.detections && r.detections[0];
@@ -812,9 +814,18 @@
     const E = 1 / zoomR, D = dist * .05 * FT.zoom / 100;   // E＝目から画面までの距離（基準1）、D＝画面から奥までの距離
     return E * (1 + D) / (E + D);
   }
+  // 顔認識をやめて、カメラとMediaPipeのメモリを空ける（ジャイロに切り替えたとき・3D表示のとき）
+  function stopFace() {
+    try { if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop()); } catch (e) {}
+    video.srcObject = null;
+    try { if (faceDet) faceDet.close(); } catch (e) {}
+    faceDet = null; faceOn = false; faceNeutral = null; lastVideoT = -1;
+    $('camBox').style.display = 'none';
+  }
   function setMode(m) {
     mode = m; $('modeBtn').textContent = '操作：' + (m === 'face' ? '顔' : 'ジャイロ');
     target = { x: 0, y: 0 }; zoomTarget = 1;
+    if (m !== 'face') stopFace();
     if (m === 'face') startFace();
     else status.textContent = gyroActive ? '傾きセンサー：動作中' : '傾きセンサーなし：マウス／ドラッグで操作';
     $('camBox').style.display = (m === 'face' && faceOn && FT.showCam) ? 'block' : 'none';
@@ -869,10 +880,10 @@
   }
   function startStereo() {
     stereoOn = true; document.body.classList.add('stereo');
+    if (mode === 'face') setMode('gyro');     // 3D表示はジャイロだけ（カメラが画面の端にあり、飛び出しが片側に寄るため）
+    stopFace();
     eyes = [$('eyeL'), $('eyeR')];
-    const base = location.href.split('#')[0].split('?')[0];
-    let loaded = 0;
-    eyes.forEach((f, i) => { f.onload = () => { if (++loaded === 2) setTimeout(sendSnapshot, 300); }; f.src = base + '?eye=' + (i ? 'R' : 'L'); });
+    loadEyesWhenLandscape();
     $('sepR').value = ST.sepCm; $('eyeR2').value = ST.eye; layoutStereo();
     try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
     freeOwnScene();
@@ -888,6 +899,29 @@
     for (const k in L) { const c = L[k]; c.el = c.maskEl = c.fill = c.cat = c.img = null; }
   }
   // やめるときは、今の設定を覚えてページを読み直す（捨てた絵を作り直すため）
+  // 横向きになってから、左目→右目の順に1つずつ読み込む（同時に読むとメモリが一気に増えるため）
+  function loadEyesWhenLandscape() {
+    if (!stereoOn || eyes[0].dataset.started) return;
+    if (innerWidth < innerHeight) { setTimeout(loadEyesWhenLandscape, 400); return; }
+    eyes[0].dataset.started = '1';
+    const base = location.href.split('#')[0].split('?')[0];
+    eyes[0].onload = () => { eyes[1].onload = () => setTimeout(sendSnapshot, 300); eyes[1].src = base + '?eye=R'; };
+    eyes[0].src = base + '?eye=L';
+  }
+  async function shrinkAssets() {
+    const keep = new Set(['00_CASTER0', '03_STAR_DS']);     // 3D猫・額縁が使う画像はそのまま
+    for (const [key, r] of Object.entries(ASSETS.img)) {
+      if (keep.has(key)) continue;
+      await new Promise(res => { const im = new Image(); im.onload = () => {
+        const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(im.width / 2)); cv.height = Math.max(1, Math.round(im.height / 2));
+        cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+        cv.toBlob(b => { r.src = URL.createObjectURL(b); cv.width = cv.height = 1; res(); });
+      }; im.onerror = res; im.src = r.src; });
+    }
+    ASSET_SCALE = .5;
+    for (const k of ORDER) { const c = L[k]; if (c.maskEl && ASSETS.img[c.file] && c.kind !== '3d') setMask(c.maskEl, ASSETS.img[c.file].src); }
+    rebuild(); document.body.style.visibility = '';
+  }
   function stopStereo() {
     try { sessionStorage.setItem('ftSnap', JSON.stringify(snapshot())); } catch (e) {}
     for (const f of eyes) f.src = 'about:blank';
@@ -1164,6 +1198,7 @@
   let rz; window.addEventListener('resize', () => { if (stereoOn) return; clearTimeout(rz); rz = setTimeout(rebuild, 150); });
   buildPanel();
   rebuild();
+  if (EYE) shrinkAssets();
   // 3D表示をやめて読み直したときは、その前の設定に戻す
   if (!EYE) { try { const sn = sessionStorage.getItem('ftSnap'); if (sn) { sessionStorage.removeItem('ftSnap'); window.__applySnapshot(JSON.parse(sn)); buildPanel(); setPower(power / POWER_MAX * 10);
     $('modeBtn').textContent = '操作：' + (mode === 'face' ? '顔' : 'ジャイロ'); } } catch (e) {} }
